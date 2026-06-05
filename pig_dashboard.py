@@ -178,7 +178,7 @@ def find_latest_data_day(max_lookback: int = 10) -> Tuple[Optional[date], Option
 # ── 3. CSV 누적 저장 ──────────────────────────────────────────────────────────
 def load_history() -> pd.DataFrame:
     if CSV_PATH.exists():
-        df = pd.read_csv(CSV_PATH, dtype={"date": str})
+        df = pd.read_csv(CSV_PATH, dtype={"date": str}, encoding="utf-8-sig")
         df["date"]  = pd.to_datetime(df["date"], format="%Y%m%d")
         df["price"] = pd.to_numeric(df["price"], errors="coerce")
         return df
