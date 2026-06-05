@@ -177,18 +177,28 @@ def find_latest_data_day(max_lookback: int = 10) -> Tuple[Optional[date], Option
 
 # ── 3. CSV 누적 저장 ──────────────────────────────────────────────────────────
 def load_history() -> pd.DataFrame:
-    if CSV_PATH.exists():
-        # 여러 인코딩 시도 (dtype 지정 제거)
-        for encoding in ["utf-8", "utf-8-sig", "cp949", "latin1", "iso-8859-1"]:
-            try:
-                df = pd.read_csv(CSV_PATH, encoding=encoding, on_bad_lines='skip')
-                df["date"]  = pd.to_datetime(df["date"], format="%Y%m%d", errors="coerce")
-                df["price"] = pd.to_numeric(df["price"], errors="coerce")
-                return df
-            except Exception:
-                continue
-        # 모든 인코딩 실패 시 빈 데이터프레임
+    if not CSV_PATH.exists():
         return pd.DataFrame(columns=["date", "price", "count", "market_cnt"])
+
+    # 여러 인코딩 시도 (안정적 읽기)
+    encodings = ["utf-8", "utf-8-sig", "cp949", "latin1", "iso-8859-1", "ascii"]
+
+    for encoding in encodings:
+        try:
+            df = pd.read_csv(
+                CSV_PATH,
+                encoding=encoding,
+                on_bad_lines='skip',
+                dtype={"date": str, "price": float, "count": float, "market_cnt": float}
+            )
+            # 날짜 변환
+            if "date" in df.columns:
+                df["date"] = pd.to_datetime(df["date"], format="%Y%m%d", errors="coerce")
+            return df
+        except Exception as e:
+            continue
+
+    # 모든 인코딩 실패 시 빈 데이터프레임
     return pd.DataFrame(columns=["date", "price", "count", "market_cnt"])
 
 def save_history(df: pd.DataFrame):
