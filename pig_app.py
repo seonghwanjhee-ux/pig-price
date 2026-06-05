@@ -45,10 +45,14 @@ st.markdown("""
 
 
 # ── 데이터 로드 ───────────────────────────────────────────────────────────────
-@st.cache_data(show_spinner=False)
+GITHUB_CSV_URL = "https://raw.githubusercontent.com/seonghwanjhee-ux/pig-price/data/pig_price_history.csv"
+
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_data():
     try:
-        return load_history()
+        df = pd.read_csv(GITHUB_CSV_URL, encoding="utf-8-sig")
+        df["date"] = pd.to_datetime(df["date"], format="%Y%m%d")
+        return df.sort_values("date").reset_index(drop=True)
     except Exception as e:
         st.warning(f"데이터 로드 실패: {str(e)}")
         return pd.DataFrame(columns=["date", "price", "count", "market_cnt"])
