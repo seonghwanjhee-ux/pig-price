@@ -193,7 +193,7 @@ def load_history() -> pd.DataFrame:
 
 def save_history(df: pd.DataFrame):
     out = df.copy()
-    out["date"] = out["date"].dt.strftime("%Y%m%d")
+    out["date"] = pd.to_datetime(out["date"]).dt.strftime("%Y%m%d")
     out.to_csv(CSV_PATH, index=False, encoding="utf-8-sig")
 
 def update_history(df: pd.DataFrame, new_rows: List[dict]) -> Tuple[pd.DataFrame, int]:
