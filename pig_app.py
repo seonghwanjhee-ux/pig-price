@@ -64,40 +64,9 @@ with st.sidebar:
     st.caption("출처: ekapepia.com\n가축시장·등외제외·전국 제주제외")
     st.divider()
 
-    # 새로고침
-    st.subheader("데이터 수집")
-    col_a, col_b = st.columns(2)
-    with col_a:
-        if st.button("🔄 최신 1일", use_container_width=True):
-            with st.spinner("수집 중..."):
-                _, row = find_latest_data_day()
-                if row:
-                    df_tmp = load_history()
-                    df_tmp, added = update_history(df_tmp, [row])
-                    save_history(df_tmp)
-                    refresh_data()
-                    st.success("✅ %s 수집 완료" % row["date"])
-                else:
-                    st.warning("데이터 없음")
-    with col_b:
-        fetch_n = st.number_input("일수", min_value=2, max_value=90, value=30, label_visibility="collapsed")
-        if st.button("📥 기간 수집", use_container_width=True):
-            with st.spinner("수집 중 (시간이 걸릴 수 있습니다)..."):
-                end_d   = prev_business_day()
-                start_d = prev_business_day(date.today() - timedelta(days=fetch_n * 2))
-                targets = business_days_range(start_d, end_d)[-fetch_n:]
-                rows = []
-                prog = st.progress(0)
-                for i, d in enumerate(targets):
-                    r = scrape_pig_price(d)
-                    if r and r["count"] > 0:
-                        rows.append(r)
-                    prog.progress((i + 1) / len(targets))
-                df_tmp = load_history()
-                df_tmp, added = update_history(df_tmp, rows)
-                save_history(df_tmp)
-                refresh_data()
-                st.success("✅ %d건 추가" % added)
+    # 데이터 수집은 GitHub Actions에서만 자동 실행
+    st.info("ℹ️ 데이터는 매일 자동으로 수집됩니다 (GitHub Actions)")
+    st.caption("로컬 PC에서 수동 수집: python pig_dashboard.py")
 
     st.divider()
 
