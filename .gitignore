@@ -1,0 +1,19 @@
+# CSV and image files (local temporary files only)
+pig_price_history.csv
+pig_dashboard.png
+push.bat
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
