@@ -199,34 +199,34 @@ st.markdown("<br>", unsafe_allow_html=True)
 
 # ── 2주간 경락가격 표 ─────────────────────────────────────────────────────────
 def make_2week_table(df_all: pd.DataFrame) -> pd.DataFrame:
-    dow_kor = {0: "월", 1: "화", 2: "수", 3: "목", 4: "금"}
-    # 최근 영업일 10개 (2주 월-금)
+    col_labels = ["월", "화", "수", "목", "금"]
     biz = df_all[df_all["date"].dt.weekday < 5].tail(10).copy()
 
-    rows = {}
+    # 주차별로 묶기 (연도+주차 키로 구분)
+    weeks = {}
     for _, r in biz.iterrows():
-        week_num = r["date"].isocalendar()[1]
-        dow = dow_kor[r["date"].weekday()]
-        date_str = r["date"].strftime("%-m/%-d") if hasattr(r["date"], "strftime") else r["date"].strftime("%m/%d").lstrip("0")
-        label = f"{dow}\n{r['date'].strftime('%m/%d')}"
+        iso = r["date"].isocalendar()
+        key = (iso[0], iso[1])  # (연도, 주차)
+        if key not in weeks:
+            weeks[key] = {}
         price_str = f"{int(r['price']):,}원" if pd.notna(r["price"]) else "-"
-        if week_num not in rows:
-            rows[week_num] = {}
-        rows[week_num][r["date"].weekday()] = (r["date"].strftime("%m/%d"), price_str)
+        weeks[key][r["date"].weekday()] = (r["date"].strftime("%m/%d"), price_str)
 
-    # 표 구성: 행=주차, 열=월~금
-    col_order = [0, 1, 2, 3, 4]
-    col_labels = ["월", "화", "수", "목", "금"]
+    # 오래된 주가 위로 (오름차순 정렬)
     table_rows = []
-    for week_num in sorted(rows.keys()):
-        row_data = {}
-        for i, label in zip(col_order, col_labels):
-            if i in rows[week_num]:
-                date_s, price_s = rows[week_num][i]
-                row_data[label] = f"{date_s}\n{price_s}"
+    for key in sorted(weeks.keys()):
+        week_data = weeks[key]
+        # 주 날짜 범위 계산
+        dates_in_week = [v[0] for v in week_data.values()]
+        date_range = f"{min(dates_in_week)} ~ {max(dates_in_week)}"
+
+        row = {"기간": date_range}
+        for i, label in enumerate(col_labels):
+            if i in week_data:
+                row[label] = week_data[i][1]
             else:
-                row_data[label] = "-"
-        table_rows.append(row_data)
+                row[label] = "-"
+        table_rows.append(row)
 
     return pd.DataFrame(table_rows)
 
@@ -236,7 +236,10 @@ st.dataframe(
     tbl,
     use_container_width=True,
     hide_index=True,
-    column_config={col: st.column_config.TextColumn(col, width="small") for col in tbl.columns},
+    column_config={
+        "기간": st.column_config.TextColumn("기간", width="medium"),
+        **{col: st.column_config.TextColumn(col, width="small") for col in ["월", "화", "수", "목", "금"]},
+    },
 )
 
 st.markdown("<br>", unsafe_allow_html=True)
