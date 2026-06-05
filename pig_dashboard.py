@@ -443,7 +443,12 @@ def run(fetch_days: int = 1):
                 print("  %s  데이터 없음 (공휴일/휴장)" % d.strftime("%Y%m%d"))
 
     print("[2/3] CSV 저장 중...")
-    df = load_history()
+    try:
+        df = load_history()
+    except Exception as e:
+        print(f"  경고: CSV 읽기 실패 - 새로 생성합니다")
+        df = pd.DataFrame(columns=["date", "price", "count", "market_cnt"])
+
     df, added = update_history(df, new_rows)
     save_history(df)
     print("  누적: 총 %d일  신규 %d건" % (len(df), added))
