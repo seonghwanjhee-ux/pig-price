@@ -21,18 +21,85 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install pandas requests beautifulsoup4 matplotlib
+          pip install pandas requests beautifulsoup4
 
       - name: Collect pig price data
-        run: python pig_dashboard.py
+        run: |
+          python << 'EOF'
+          import requests
+          import re
+          import pandas as pd
+          from bs4 import BeautifulSoup
+          from datetime import date, timedelta
+
+          SCRAPE_URL = "https://www.ekapepia.com/v3/price/auction/period/pig/auctionPrice.do"
+
+          def scrape_pig_price(target_date):
+              date_str = target_date.strftime("%Y-%m-%d")
+              ymd = target_date.strftime("%Y%m%d")
+
+              try:
+                  s = requests.Session()
+                  s.headers.update({
+                      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                      "Accept-Language": "ko-KR,ko;q=0.9",
+                      "Referer": SCRAPE_URL,
+                  })
+                  r = s.get(SCRAPE_URL, params={
+                      "searchStartDate": date_str,
+                      "searchEndDate": date_str,
+                      "searchCondition": "2",
+                      "searchCondition1": "",
+                      "searchCondition2": "1",
+                  }, timeout=15)
+                  r.raise_for_status()
+              except Exception as e:
+                  print(f"요청 실패: {e}")
+                  return None
+
+              soup = BeautifulSoup(r.text, "html.parser")
+              table = soup.find("table")
+              if not table:
+                  return None
+
+              rows = table.find_all("tr")
+              if len(rows) < 3:
+                  return None
+
+              for tr in rows:
+                  cells = [td.get_text(strip=True) for td in tr.find_all(["td", "th"])]
+                  if cells and "등외제외" in cells[0]:
+                      m = re.match(r'([\d,]+)\((\d[\d,]*)\)', cells[1].strip() if len(cells) > 1 else "")
+                      if m:
+                          price = float(m.group(1).replace(',', ''))
+                          cnt = int(m.group(2).replace(',', ''))
+                          return {
+                              "date": ymd,
+                              "price": price,
+                              "count": int(cnt),
+                              "market_cnt": 8
+                          }
+
+              return None
+
+          # 최근 1일 수집
+          target_date = date.today() - timedelta(days=1)
+          row = scrape_pig_price(target_date)
+
+          if row:
+              df = pd.DataFrame([row])
+              print(f"{row['date']} {row['price']}원 수집 완료")
+          else:
+              print("데이터 수집 실패")
+          EOF
 
       - name: Configure git
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
 
-      - name: Push to GitHub
+      - name: Commit and push
         run: |
-          git add pig_price_history.csv
-          git commit -m "Auto update: $(date +'%Y-%m-%d %H:%M:%S')" || true
-          git push
+          git add -A
+          git commit -m "Auto collect: $(date +'%Y-%m-%d')" || true
+          git push || true
