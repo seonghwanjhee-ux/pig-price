@@ -178,10 +178,17 @@ def find_latest_data_day(max_lookback: int = 10) -> Tuple[Optional[date], Option
 # ── 3. CSV 누적 저장 ──────────────────────────────────────────────────────────
 def load_history() -> pd.DataFrame:
     if CSV_PATH.exists():
-        df = pd.read_csv(CSV_PATH, dtype={"date": str}, encoding="utf-8-sig")
-        df["date"]  = pd.to_datetime(df["date"], format="%Y%m%d")
-        df["price"] = pd.to_numeric(df["price"], errors="coerce")
-        return df
+        # 여러 인코딩 시도 (dtype 지정 제거)
+        for encoding in ["utf-8", "utf-8-sig", "cp949", "latin1", "iso-8859-1"]:
+            try:
+                df = pd.read_csv(CSV_PATH, encoding=encoding, on_bad_lines='skip')
+                df["date"]  = pd.to_datetime(df["date"], format="%Y%m%d", errors="coerce")
+                df["price"] = pd.to_numeric(df["price"], errors="coerce")
+                return df
+            except Exception:
+                continue
+        # 모든 인코딩 실패 시 빈 데이터프레임
+        return pd.DataFrame(columns=["date", "price", "count", "market_cnt"])
     return pd.DataFrame(columns=["date", "price", "count", "market_cnt"])
 
 def save_history(df: pd.DataFrame):

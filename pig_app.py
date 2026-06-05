@@ -47,7 +47,11 @@ st.markdown("""
 # ── 데이터 로드 ───────────────────────────────────────────────────────────────
 @st.cache_data(show_spinner=False)
 def get_data():
-    return load_history()
+    try:
+        return load_history()
+    except Exception as e:
+        st.warning(f"데이터 로드 실패: {str(e)}")
+        return pd.DataFrame(columns=["date", "price", "count", "market_cnt"])
 
 
 def refresh_data():
