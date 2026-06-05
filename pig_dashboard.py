@@ -177,9 +177,13 @@ def find_latest_data_day(max_lookback: int = 10) -> Tuple[Optional[date], Option
 
 # ── 3. CSV 누적 저장 ──────────────────────────────────────────────────────────
 def load_history() -> pd.DataFrame:
-    # GitHub Actions에서는 파일을 읽지 않음 (매번 새로 수집)
-    # Streamlit Cloud에서는 메모리 캐시 사용
-    # CSV는 로컬 임시 저장용으로만 사용
+    if CSV_PATH.exists():
+        try:
+            df = pd.read_csv(CSV_PATH, encoding="utf-8-sig")
+            df["date"] = pd.to_datetime(df["date"], format="%Y%m%d")
+            return df.sort_values("date").reset_index(drop=True)
+        except Exception as e:
+            print("  경고: CSV 읽기 실패 → 새로 생성합니다 (%s)" % e)
     return pd.DataFrame(columns=["date", "price", "count", "market_cnt"])
 
 def save_history(df: pd.DataFrame):
