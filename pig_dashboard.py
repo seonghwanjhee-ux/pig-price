@@ -178,12 +178,17 @@ def find_latest_data_day(max_lookback: int = 10) -> Tuple[Optional[date], Option
 # ── 3. CSV 누적 저장 ──────────────────────────────────────────────────────────
 def load_history() -> pd.DataFrame:
     if CSV_PATH.exists():
-        try:
-            df = pd.read_csv(CSV_PATH, encoding="utf-8-sig")
-            df["date"] = pd.to_datetime(df["date"], format="%Y%m%d")
-            return df.sort_values("date").reset_index(drop=True)
-        except Exception as e:
-            print("  경고: CSV 읽기 실패 → 새로 생성합니다 (%s)" % e)
+        for enc in ("utf-8-sig", "utf-8", "cp949", "latin-1"):
+            try:
+                df = pd.read_csv(CSV_PATH, encoding=enc)
+                df["date"] = pd.to_datetime(df["date"], format="%Y%m%d")
+                print("  CSV 읽기 성공 (encoding=%s)" % enc)
+                return df.sort_values("date").reset_index(drop=True)
+            except UnicodeDecodeError:
+                continue
+            except Exception as e:
+                print("  경고: CSV 읽기 실패 → 새로 생성합니다 (%s)" % e)
+                break
     return pd.DataFrame(columns=["date", "price", "count", "market_cnt"])
 
 def save_history(df: pd.DataFrame):
