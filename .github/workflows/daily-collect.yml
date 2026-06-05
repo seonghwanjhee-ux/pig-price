@@ -2,9 +2,8 @@ name: Daily Pig Price Collection
 
 on:
   schedule:
-    # 매일 오전 9시 (한국 시간) = 자정 UTC
     - cron: '0 0 * * *'
-  workflow_dispatch:  # 수동 실행 가능
+  workflow_dispatch:
 
 jobs:
   collect:
@@ -12,12 +11,12 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.14'
+          python-version: '3.11'
 
       - name: Install dependencies
         run: |
@@ -35,5 +34,5 @@ jobs:
       - name: Push to GitHub
         run: |
           git add pig_price_history.csv
-          git commit -m "Auto update pig price data: $(date +'%Y-%m-%d %H:%M:%S')" || true
+          git commit -m "Auto update: $(date +'%Y-%m-%d %H:%M:%S')" || true
           git push
