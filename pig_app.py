@@ -197,6 +197,51 @@ with c4:
 st.markdown("<br>", unsafe_allow_html=True)
 
 
+# ── 2주간 경락가격 표 ─────────────────────────────────────────────────────────
+def make_2week_table(df_all: pd.DataFrame) -> pd.DataFrame:
+    dow_kor = {0: "월", 1: "화", 2: "수", 3: "목", 4: "금"}
+    # 최근 영업일 10개 (2주 월-금)
+    biz = df_all[df_all["date"].dt.weekday < 5].tail(10).copy()
+
+    rows = {}
+    for _, r in biz.iterrows():
+        week_num = r["date"].isocalendar()[1]
+        dow = dow_kor[r["date"].weekday()]
+        date_str = r["date"].strftime("%-m/%-d") if hasattr(r["date"], "strftime") else r["date"].strftime("%m/%d").lstrip("0")
+        label = f"{dow}\n{r['date'].strftime('%m/%d')}"
+        price_str = f"{int(r['price']):,}원" if pd.notna(r["price"]) else "-"
+        if week_num not in rows:
+            rows[week_num] = {}
+        rows[week_num][r["date"].weekday()] = (r["date"].strftime("%m/%d"), price_str)
+
+    # 표 구성: 행=주차, 열=월~금
+    col_order = [0, 1, 2, 3, 4]
+    col_labels = ["월", "화", "수", "목", "금"]
+    table_rows = []
+    for week_num in sorted(rows.keys()):
+        row_data = {}
+        for i, label in zip(col_order, col_labels):
+            if i in rows[week_num]:
+                date_s, price_s = rows[week_num][i]
+                row_data[label] = f"{date_s}\n{price_s}"
+            else:
+                row_data[label] = "-"
+        table_rows.append(row_data)
+
+    return pd.DataFrame(table_rows)
+
+st.subheader("최근 2주 경락가격")
+tbl = make_2week_table(df_all)
+st.dataframe(
+    tbl,
+    use_container_width=True,
+    hide_index=True,
+    column_config={col: st.column_config.TextColumn(col, width="small") for col in tbl.columns},
+)
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+
 # ── 경락가격 추이 차트 ────────────────────────────────────────────────────────
 valid_mask = df["price"].notna()
 no_price   = df[~valid_mask & (df["count"] > 0)]
