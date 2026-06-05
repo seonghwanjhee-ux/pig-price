@@ -200,7 +200,7 @@ st.markdown("<br>", unsafe_allow_html=True)
 # ── 2주간 경락가격 표 ─────────────────────────────────────────────────────────
 def make_2week_table(df_all: pd.DataFrame) -> pd.DataFrame:
     col_labels = ["월", "화", "수", "목", "금"]
-    biz = df_all[df_all["date"].dt.weekday < 5].tail(10).copy()
+    biz = df_all[df_all["date"].dt.weekday < 5].copy()
 
     # 주차별로 묶기 (연도+주차 키로 구분)
     weeks = {}
@@ -212,9 +212,12 @@ def make_2week_table(df_all: pd.DataFrame) -> pd.DataFrame:
         price_str = f"{int(r['price']):,}원" if pd.notna(r["price"]) else "-"
         weeks[key][r["date"].weekday()] = (r["date"].strftime("%m/%d"), price_str)
 
+    # 마지막 2주만 사용
+    last_2_keys = sorted(weeks.keys())[-2:]
+
     # 오래된 주가 위로 (오름차순 정렬)
     table_rows = []
-    for key in sorted(weeks.keys()):
+    for key in last_2_keys:
         week_data = weeks[key]
         # 주 날짜 범위 계산
         dates_in_week = [v[0] for v in week_data.values()]
