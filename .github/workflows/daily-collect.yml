@@ -103,10 +103,9 @@ jobs:
           elif [ "${{ github.event.inputs.mode }}" = "fill" ]; then
             git fetch origin data || true
             if git show-ref --verify --quiet refs/remotes/origin/data; then
-              # pig_price_history.csv → pig_price_all.csv 로 복사 (없으면)
-              git checkout origin/data -- pig_price_all.csv 2>/dev/null || \
-              git checkout origin/data -- pig_price_history.csv && \
-              cp pig_price_history.csv pig_price_all.csv || true
+              git checkout origin/data -- pig_price_all.csv || true
+              echo "pig_price_all.csv 체크아웃 완료"
+              ls -la pig_price_all.csv 2>/dev/null && wc -l pig_price_all.csv || echo "파일 없음"
             fi
             echo "=== FILL 모드: price 없는 날짜만 재수집 ==="
             python pig_dashboard.py --fill
