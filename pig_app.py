@@ -387,7 +387,12 @@ with tab2:
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
             margin=dict(l=10, r=10, t=80, b=10),
             hovermode="x unified",
-            xaxis=dict(title=x_label, showgrid=False, dtick=1),
+            xaxis=dict(
+                showgrid=False,
+                tickmode="array",
+                tickvals=df_cur["period"].tolist(),
+                ticktext=[f"{int(p)}{x_label}" for p in df_cur["period"].tolist()],
+            ),
         )
         fig.update_yaxes(
             title_text="출하두수 (두)", tickformat=",", secondary_y=False,
