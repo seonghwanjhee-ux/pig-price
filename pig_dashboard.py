@@ -471,8 +471,20 @@ def run_fill():
     print(" [FILL 모드] price 없는 날짜만 재수집")
     print("=" * 55)
 
-    # CSV 로드
-    df = load_history()
+    # CSV 로드 (인코딩 순차 시도)
+    df = pd.DataFrame()
+    for enc in ("utf-8-sig", "utf-8", "cp949", "latin-1"):
+        try:
+            df = pd.read_csv(CSV_PATH, encoding=enc)
+            df["date"] = pd.to_datetime(df["date"], format="%Y%m%d")
+            print("  CSV 로드 성공 (%s, %d행)" % (enc, len(df)))
+            break
+        except UnicodeDecodeError:
+            continue
+        except Exception as e:
+            print("  CSV 로드 실패: %s" % e)
+            break
+
     if df.empty:
         print("  CSV 없음. --from 으로 전체 수집 먼저 실행하세요.")
         return
