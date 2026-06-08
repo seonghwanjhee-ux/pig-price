@@ -348,45 +348,47 @@ with tab2:
         if df_cur.empty:
             return None
 
-        # hover 텍스트용 라벨
-        if is_week:
-            hover_label = [f"{year}년 {int(p)}주차" for p in df_cur["period"]]
-        else:
-            hover_label = [f"{int(p)}월" for p in df_cur["period"]]
+        # hover 기간 라벨 (숫자만)
+        unit = "주차" if is_week else "월"
+        period_label = [f"{int(p)}{unit}" for p in df_cur["period"]]
 
         fig = make_subplots(specs=[[{"secondary_y": True}]])
 
-        # 막대: 평년 / 전년 / 올해 출하물량
+        # 막대: 평년 출하물량
         fig.add_trace(go.Bar(
             x=df_cur["period"], y=df_cur["avg_volume"],
             name="평년 출하두수", marker_color="#bdc3c7", opacity=0.8,
-            customdata=hover_label,
-            hovertemplate="%{customdata}<br>평년: <b>%{y:,.0f}두</b><extra></extra>",
+            customdata=period_label,
+            hovertemplate="평년 %{customdata}: <b>%{y:,.0f}두</b><extra></extra>",
         ), secondary_y=False)
 
+        # 막대: 전년 출하물량
         fig.add_trace(go.Bar(
             x=df_cur["period"], y=df_cur["prev_volume"],
             name=f"{year-1}년 출하두수", marker_color="#85c1e9", opacity=0.8,
-            customdata=hover_label,
-            hovertemplate="%{customdata}<br>" + f"{year-1}년: <b>%{{y:,.0f}}두</b><extra></extra>",
+            customdata=period_label,
+            hovertemplate=f"{year-1}년 %{{customdata}}: <b>%{{y:,.0f}}두</b><extra></extra>",
         ), secondary_y=False)
 
+        # 막대: 올해 출하물량
         v_cur = df_cur["curr_volume"].notna() & (df_cur["curr_volume"] > 10000)
+        v_idx = df_cur.index[v_cur] - df_cur.index[0]
         fig.add_trace(go.Bar(
             x=df_cur.loc[v_cur, "period"], y=df_cur.loc[v_cur, "curr_volume"],
             name=f"{year}년 출하두수", marker_color="#2ecc71", opacity=0.9,
-            customdata=[hover_label[i] for i in df_cur.index[v_cur] - df_cur.index[0]],
-            hovertemplate="%{customdata}<br>" + f"{year}년: <b>%{{y:,.0f}}두</b><extra></extra>",
+            customdata=[period_label[i] for i in v_idx],
+            hovertemplate=f"{year}년 %{{customdata}}: <b>%{{y:,.0f}}두</b><extra></extra>",
         ), secondary_y=False)
 
         # 꺾은선: 올해 경락가격
         p_cur = df_cur["curr_price"].notna()
+        p_idx = df_cur.index[p_cur] - df_cur.index[0]
         fig.add_trace(go.Scatter(
             x=df_cur.loc[p_cur, "period"], y=df_cur.loc[p_cur, "curr_price"],
             name=f"{year}년 경락가격", mode="lines+markers",
             line=dict(color="#e74c3c", width=2.5), marker=dict(size=6),
-            customdata=[hover_label[i] for i in df_cur.index[p_cur] - df_cur.index[0]],
-            hovertemplate="%{customdata}<br>경락가: <b>%{y:,.0f}원/kg</b><extra></extra>",
+            customdata=[period_label[i] for i in p_idx],
+            hovertemplate=f"{year}년 경락가 %{{customdata}}: <b>%{{y:,.0f}}원/kg</b><extra></extra>",
         ), secondary_y=True)
 
         fig.update_layout(
