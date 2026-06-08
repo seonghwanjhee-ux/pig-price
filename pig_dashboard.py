@@ -19,11 +19,11 @@ from pathlib import Path
 import sys
 
 # ── 설정 ──────────────────────────────────────────────────────────────────────
-SCRAPE_URL  = "https://www.ekapepia.com/v3/price/auction/period/pig/auctionPrice.do"
-CSV_PATH    = Path(__file__).parent / "pig_price_history.csv"
-CHART_OUT   = Path(__file__).parent / "pig_dashboard.png"
-CHART_DAYS  = 60
-MIN_MARKETS = 5   # 유효 경락가 인정 최소 개별 경매장 수
+SCRAPE_URL   = "https://www.ekapepia.com/v3/price/auction/period/pig/auctionPrice.do"
+CSV_PATH     = Path(__file__).parent / "pig_price_all.csv"   # 제한 없이 수집, 앱에서 필터링
+CHART_OUT    = Path(__file__).parent / "pig_dashboard.png"
+CHART_DAYS   = 60
+MIN_MARKETS  = 5   # 앱 표시용 최소 경매장 수 (수집은 제한 없음)
 
 
 # ── 유틸 ──────────────────────────────────────────────────────────────────────
@@ -147,7 +147,7 @@ def scrape_pig_price(target_date: date) -> Optional[dict]:
                             subtotals.add(unique_counts[i])
         active_mkts = sum(1 for c in unique_counts if c not in subtotals)
 
-        price = nat_price if active_mkts >= MIN_MARKETS else None
+        price = nat_price  # 제한 없이 수집, 앱에서 MIN_MARKETS 기준으로 필터링
 
         return {
             "date"      : ymd,
@@ -392,7 +392,7 @@ def draw_dashboard(df: pd.DataFrame):
 
 
 # ── 6. 메인 실행 ──────────────────────────────────────────────────────────────
-def run(fetch_days: int = 1):
+def run(fetch_days: int = 1, no_limit: bool = False):
     print("=" * 55)
     print(" 돼지 가축시장 경락가격 대시보드")
     print(" 출처: ekapepia.com")
@@ -431,39 +431,38 @@ def run(fetch_days: int = 1):
                 new_rows.append(row)
             else:
                 print("  %s  데이터 없음 (공휴일/휴장)" % d.strftime("%Y%m%d"))
-            # 대량 수집 시 서버 부하 방지 (10건마다 1초 대기)
             if fetch_days > 10 and i % 10 == 9:
                 import time; time.sleep(1)
 
     print("[2/3] CSV 저장 중...")
     try:
         df = load_history()
-    except Exception as e:
-        print(f"  경고: CSV 읽기 실패 - 새로 생성합니다")
+    except Exception:
         df = pd.DataFrame(columns=["date", "price", "count", "market_cnt"])
 
     df, added = update_history(df, new_rows)
     save_history(df)
     print("  누적: 총 %d일  신규 %d건" % (len(df), added))
 
-    if len(df) >= 2:
+    if not no_limit and len(df) >= 2:
         print("[3/3] 대시보드 생성 중...")
         draw_dashboard(df)
     else:
-        print("[3/3] 데이터 부족. --init 으로 초기 수집 먼저 실행하세요.")
+        print("[3/3] 완료 (no_limit 모드는 차트 생략)")
 
     print("\n[완료]")
 
 
 if __name__ == "__main__":
+    no_limit = "--all" in sys.argv   # 경매장 제한 없는 전체 수집 모드
+
     if "--from" in sys.argv:
-        # --from YYYYMMDD : 특정 날짜부터 오늘까지 수집
         idx = sys.argv.index("--from")
         start_str = sys.argv[idx + 1]
         start_date = date(int(start_str[:4]), int(start_str[4:6]), int(start_str[6:8]))
         days = (date.today() - start_date).days
-        run(fetch_days=days)
+        run(fetch_days=days, no_limit=no_limit)
     elif "--init" in sys.argv:
-        run(fetch_days=90)
+        run(fetch_days=90, no_limit=no_limit)
     else:
-        run(fetch_days=1)
+        run(fetch_days=1, no_limit=no_limit)

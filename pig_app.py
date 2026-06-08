@@ -46,12 +46,13 @@ st.markdown("""
 
 # ── 데이터 로드 ───────────────────────────────────────────────────────────────
 GITHUB_BASE      = "https://raw.githubusercontent.com/seonghwanjhee-ux/pig-price/data"
-GITHUB_CSV_URL   = f"{GITHUB_BASE}/pig_price_history.csv"
+GITHUB_CSV_URL   = f"{GITHUB_BASE}/pig_price_all.csv"
 GITHUB_MONTH_URL = f"{GITHUB_BASE}/pig_supply_month.csv"
 GITHUB_WEEK_URL  = f"{GITHUB_BASE}/pig_supply_week.csv"
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_data():
+    """전체 데이터 로드 (경매장 제한 없음) - 앱에서 필터링"""
     try:
         df = pd.read_csv(GITHUB_CSV_URL, encoding="utf-8-sig")
         df["date"] = pd.to_datetime(df["date"], format="%Y%m%d")
@@ -59,6 +60,13 @@ def get_data():
     except Exception as e:
         st.warning(f"경락가격 데이터 로드 실패: {str(e)}")
         return pd.DataFrame(columns=["date", "price", "count", "market_cnt"])
+
+def apply_market_filter(df: pd.DataFrame) -> pd.DataFrame:
+    """경매장 5개 미만인 날 price → None 처리 (일별 현황용)"""
+    df = df.copy()
+    mask = pd.to_numeric(df["market_cnt"], errors="coerce").fillna(0) < MIN_MARKETS
+    df.loc[mask, "price"] = None
+    return df
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_supply_month():
@@ -118,7 +126,8 @@ with st.sidebar:
 
 
 # ── 데이터 필터링 ─────────────────────────────────────────────────────────────
-df_all = get_data()
+df_all_raw = get_data()                        # 제한 없는 원본 (연도별 비교용)
+df_all     = apply_market_filter(df_all_raw)   # 경매장 5개 이상 필터 (일별 현황용)
 
 if len(df_all) == 0:
     st.warning("데이터가 없습니다.")
@@ -337,13 +346,15 @@ with tab1:
 
     else:
         # ── 연도별 비교 뷰 ────────────────────────────────────────────────────
+        df_yr_src = df_all_raw  # 경매장 제한 없는 원본 데이터 사용
+
         year_colors = {2024: "#95a5a6", 2025: "#3498db", 2026: "#e74c3c"}
         year_width  = {2024: 1.5,       2025: 1.5,       2026: 2.5}
 
         fig2 = go.Figure()
 
         # 2024/2025 밴드 (고가/저가 범위)
-        df_band = df_all[df_all["date"].dt.year.isin([2024, 2025]) & df_all["price"].notna()].copy()
+        df_band = df_yr_src[df_yr_src["date"].dt.year.isin([2024, 2025]) & df_yr_src["price"].notna()].copy()
         df_band["mmdd"] = df_band["date"].dt.strftime("%m-%d")
         band = df_band.groupby("mmdd")["price"].agg(["min", "max"]).reset_index()
         band["x"] = pd.to_datetime("2026-" + band["mmdd"], errors="coerce")
@@ -359,7 +370,7 @@ with tab1:
 
         # 연도별 선
         for yr in [2024, 2025, 2026]:
-            df_yr = df_all[(df_all["date"].dt.year == yr) & df_all["price"].notna()].copy()
+            df_yr = df_yr_src[(df_yr_src["date"].dt.year == yr) & df_yr_src["price"].notna()].copy()
             if df_yr.empty:
                 continue
             # x축을 2026년 기준 날짜로 통일

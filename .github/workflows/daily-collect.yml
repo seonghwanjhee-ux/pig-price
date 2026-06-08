@@ -52,6 +52,9 @@ jobs:
           elif [ "${{ github.event.inputs.mode }}" = "from" ]; then
             echo "=== 날짜 지정 수집: ${{ github.event.inputs.from_date }} 부터 ==="
             python pig_dashboard.py --from ${{ github.event.inputs.from_date }}
+          elif [ "${{ github.event.inputs.mode }}" = "all" ]; then
+            echo "=== 전체 수집 모드: 경매장 제한 없음 ==="
+            python pig_dashboard.py --from ${{ github.event.inputs.from_date }} --all
           else
             echo "=== 일반 모드: 오늘 1일치 수집 ==="
             python pig_dashboard.py
