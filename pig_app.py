@@ -249,82 +249,156 @@ with tab1:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
+    # ── 차트 옵션 ─────────────────────────────────────────────────────────────
+    opt_col1, opt_col2, opt_col3 = st.columns([1, 1, 4])
+    with opt_col1:
+        show_ma   = st.toggle("3일 이동평균", value=True)
+    with opt_col2:
+        show_year = st.toggle("연도별 비교", value=False)
+
     # ── 경락가격 추이 차트 ────────────────────────────────────────────────────
     valid_mask = df["price"].notna()
     no_price   = df[~valid_mask & (df["count"] > 0)]
 
-    fig = make_subplots(
-        rows=2, cols=2,
-        row_heights=[0.62, 0.38],
-        specs=[[{"colspan": 2}, None], [{}, {}]],
-        subplot_titles=("경락가격 추이  (원/kg)", "일별 경매 두수", "일별 활성 경매장 수"),
-        vertical_spacing=0.12,
-        horizontal_spacing=0.08,
-    )
+    if not show_year:
+        # ── 일반 뷰 ──────────────────────────────────────────────────────────
+        fig = make_subplots(
+            rows=2, cols=2,
+            row_heights=[0.62, 0.38],
+            specs=[[{"colspan": 2}, None], [{}, {}]],
+            subplot_titles=("경락가격 추이  (원/kg)", "일별 경매 두수", "일별 활성 경매장 수"),
+            vertical_spacing=0.12, horizontal_spacing=0.08,
+        )
 
-    fig.add_trace(go.Scatter(
-        x=df.loc[valid_mask, "date"], y=df.loc[valid_mask, "price"],
-        name="전일 경락가격", mode="lines+markers",
-        line=dict(color="#3498db", width=2), marker=dict(size=5),
-        fill="tozeroy", fillcolor="rgba(52,152,219,0.07)",
-        hovertemplate="%{x|%Y-%m-%d}<br>경락가: <b>%{y:,.0f}원/kg</b><extra></extra>",
-    ), row=1, col=1)
+        fig.add_trace(go.Scatter(
+            x=df.loc[valid_mask, "date"], y=df.loc[valid_mask, "price"],
+            name="전일 경락가격", mode="lines+markers",
+            line=dict(color="#3498db", width=2), marker=dict(size=5),
+            fill="tozeroy", fillcolor="rgba(52,152,219,0.07)",
+            hovertemplate="%{x|%Y-%m-%d}<br>경락가: <b>%{y:,.0f}원/kg</b><extra></extra>",
+        ), row=1, col=1)
 
-    avg_mask = df["avg3"].notna()
-    fig.add_trace(go.Scatter(
-        x=df.loc[avg_mask, "date"], y=df.loc[avg_mask, "avg3"],
-        name="직전 3거래일 평균", mode="lines+markers",
-        line=dict(color="#e74c3c", width=2, dash="dash"), marker=dict(size=4, symbol="square"),
-        hovertemplate="%{x|%Y-%m-%d}<br>3일평균: <b>%{y:,.0f}원/kg</b><extra></extra>",
-    ), row=1, col=1)
+        if show_ma:
+            avg_mask = df["avg3"].notna()
+            fig.add_trace(go.Scatter(
+                x=df.loc[avg_mask, "date"], y=df.loc[avg_mask, "avg3"],
+                name="3거래일 평균", mode="lines",
+                line=dict(color="#e74c3c", width=2, dash="dash"),
+                hovertemplate="%{x|%Y-%m-%d}<br>3일평균: <b>%{y:,.0f}원/kg</b><extra></extra>",
+            ), row=1, col=1)
 
-    for _, nr in no_price.iterrows():
-        x_str = nr["date"].strftime("%Y-%m-%d")
-        fig.add_shape(type="line", x0=x_str, x1=x_str, y0=y_min, y1=y_max,
-            line=dict(color="#e67e22", width=1, dash="dot"), row=1, col=1)
-        fig.add_annotation(x=x_str, y=y_min, text="없음", textangle=-90,
-            font=dict(size=9, color="#e67e22"), showarrow=False, yanchor="bottom", row=1, col=1)
+        for _, nr in no_price.iterrows():
+            x_str = nr["date"].strftime("%Y-%m-%d")
+            fig.add_shape(type="line", x0=x_str, x1=x_str, y0=y_min, y1=y_max,
+                line=dict(color="#e67e22", width=1, dash="dot"), row=1, col=1)
+            fig.add_annotation(x=x_str, y=y_min, text="없음", textangle=-90,
+                font=dict(size=9, color="#e67e22"), showarrow=False, yanchor="bottom", row=1, col=1)
 
-    fig.update_yaxes(range=[y_min, y_max], tickformat=",", row=1, col=1)
+        fig.update_yaxes(range=[y_min, y_max], tickformat=",", row=1, col=1)
 
-    mean_cnt   = df.loc[valid_mask, "count"].mean() if valid_mask.any() else 0
-    bar_colors = []
-    for _, row_r in df.iterrows():
-        if not pd.notna(row_r.get("price")):
-            bar_colors.append("#f0b27a")
-        elif row_r["count"] >= mean_cnt:
-            bar_colors.append("#2ecc71")
-        else:
-            bar_colors.append("#95a5a6")
+        mean_cnt   = df.loc[valid_mask, "count"].mean() if valid_mask.any() else 0
+        bar_colors = []
+        for _, row_r in df.iterrows():
+            if not pd.notna(row_r.get("price")):
+                bar_colors.append("#f0b27a")
+            elif row_r["count"] >= mean_cnt:
+                bar_colors.append("#2ecc71")
+            else:
+                bar_colors.append("#95a5a6")
 
-    fig.add_trace(go.Bar(
-        x=df["date"], y=df["count"], name="경매 두수", marker_color=bar_colors,
-        hovertemplate="%{x|%Y-%m-%d}<br>두수: <b>%{y:,.0f}두</b><extra></extra>",
-    ), row=2, col=1)
-    fig.add_hline(y=mean_cnt, line_dash="dash", line_color="#e74c3c",
-                  annotation_text="평균 %s두" % fmt(mean_cnt),
-                  annotation_position="top right", row=2, col=1)
-    fig.update_yaxes(tickformat=",", row=2, col=1)
-
-    if "market_cnt" in df.columns:
-        mc = pd.to_numeric(df["market_cnt"], errors="coerce").fillna(0)
-        mkt_colors = ["#27ae60" if v >= MIN_MARKETS else "#e74c3c" for v in mc]
         fig.add_trace(go.Bar(
-            x=df["date"], y=mc, name="활성 경매장", marker_color=mkt_colors,
-            hovertemplate="%{x|%Y-%m-%d}<br>경매장: <b>%{y}개</b><extra></extra>",
-        ), row=2, col=2)
-        fig.add_hline(y=MIN_MARKETS, line_dash="dash", line_color="#e67e22",
-                      annotation_text="기준 %d개" % MIN_MARKETS,
-                      annotation_position="top right", row=2, col=2)
+            x=df["date"], y=df["count"], name="경매 두수", marker_color=bar_colors,
+            hovertemplate="%{x|%Y-%m-%d}<br>두수: <b>%{y:,.0f}두</b><extra></extra>",
+        ), row=2, col=1)
+        fig.add_hline(y=mean_cnt, line_dash="dash", line_color="#e74c3c",
+                      annotation_text="평균 %s두" % fmt(mean_cnt),
+                      annotation_position="top right", row=2, col=1)
+        fig.update_yaxes(tickformat=",", row=2, col=1)
 
-    fig.update_layout(
-        height=680, plot_bgcolor="white", paper_bgcolor="#f8f9fa",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-        margin=dict(l=10, r=10, t=60, b=10), hovermode="x unified",
-    )
-    fig.update_xaxes(showgrid=False)
-    fig.update_yaxes(showgrid=True, gridcolor="#f0f0f0")
-    st.plotly_chart(fig, use_container_width=True)
+        if "market_cnt" in df.columns:
+            mc = pd.to_numeric(df["market_cnt"], errors="coerce").fillna(0)
+            mkt_colors = ["#27ae60" if v >= MIN_MARKETS else "#e74c3c" for v in mc]
+            fig.add_trace(go.Bar(
+                x=df["date"], y=mc, name="활성 경매장", marker_color=mkt_colors,
+                hovertemplate="%{x|%Y-%m-%d}<br>경매장: <b>%{y}개</b><extra></extra>",
+            ), row=2, col=2)
+            fig.add_hline(y=MIN_MARKETS, line_dash="dash", line_color="#e67e22",
+                          annotation_text="기준 %d개" % MIN_MARKETS,
+                          annotation_position="top right", row=2, col=2)
+
+        fig.update_layout(
+            height=680, plot_bgcolor="white", paper_bgcolor="#f8f9fa",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+            margin=dict(l=10, r=10, t=60, b=10), hovermode="x unified",
+        )
+        fig.update_xaxes(showgrid=False)
+        fig.update_yaxes(showgrid=True, gridcolor="#f0f0f0")
+        st.plotly_chart(fig, use_container_width=True)
+
+    else:
+        # ── 연도별 비교 뷰 ────────────────────────────────────────────────────
+        year_colors = {2024: "#95a5a6", 2025: "#3498db", 2026: "#e74c3c"}
+        year_width  = {2024: 1.5,       2025: 1.5,       2026: 2.5}
+
+        fig2 = go.Figure()
+
+        # 2024/2025 밴드 (고가/저가 범위)
+        df_band = df_all[df_all["date"].dt.year.isin([2024, 2025]) & df_all["price"].notna()].copy()
+        df_band["mmdd"] = df_band["date"].dt.strftime("%m-%d")
+        band = df_band.groupby("mmdd")["price"].agg(["min", "max"]).reset_index()
+        band["x"] = pd.to_datetime("2026-" + band["mmdd"], errors="coerce")
+        band = band.dropna(subset=["x"]).sort_values("x")
+
+        fig2.add_trace(go.Scatter(
+            x=pd.concat([band["x"], band["x"][::-1]]),
+            y=pd.concat([band["max"], band["min"][::-1]]),
+            fill="toself", fillcolor="rgba(149,165,166,0.15)",
+            line=dict(color="rgba(0,0,0,0)"),
+            name="2024~2025 범위", hoverinfo="skip",
+        ))
+
+        # 연도별 선
+        for yr in [2024, 2025, 2026]:
+            df_yr = df_all[(df_all["date"].dt.year == yr) & df_all["price"].notna()].copy()
+            if df_yr.empty:
+                continue
+            # x축을 2026년 기준 날짜로 통일
+            df_yr["x_date"] = pd.to_datetime(
+                "2026-" + df_yr["date"].dt.strftime("%m-%d"), errors="coerce"
+            )
+            df_yr = df_yr.dropna(subset=["x_date"]).sort_values("x_date")
+
+            if show_ma:
+                df_yr["ma3"] = df_yr["price"].rolling(3, min_periods=1).mean()
+                fig2.add_trace(go.Scatter(
+                    x=df_yr["x_date"], y=df_yr["ma3"],
+                    name=f"{yr}년 3일평균",
+                    mode="lines",
+                    line=dict(color=year_colors[yr], width=year_width[yr], dash="dot"),
+                    opacity=0.7,
+                    hovertemplate=f"{yr}년 %{{x|%m-%d}}<br>3일평균: <b>%{{y:,.0f}}원/kg</b><extra></extra>",
+                ))
+
+            fig2.add_trace(go.Scatter(
+                x=df_yr["x_date"], y=df_yr["price"],
+                name=f"{yr}년",
+                mode="lines+markers",
+                line=dict(color=year_colors[yr], width=year_width[yr]),
+                marker=dict(size=3 if yr != 2026 else 5),
+                hovertemplate=f"{yr}년 %{{x|%m-%d}}<br>경락가: <b>%{{y:,.0f}}원/kg</b><extra></extra>",
+            ))
+
+        fig2.update_layout(
+            title="연도별 경락가격 비교  (원/kg)",
+            height=500, plot_bgcolor="white", paper_bgcolor="#f8f9fa",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+            margin=dict(l=10, r=10, t=80, b=10),
+            hovermode="x unified",
+            xaxis=dict(showgrid=False, tickformat="%m월"),
+            yaxis=dict(tickformat=",", showgrid=True, gridcolor="#f0f0f0",
+                       range=[y_min, y_max]),
+        )
+        st.plotly_chart(fig2, use_container_width=True)
 
     with st.expander("📋 원본 데이터 보기"):
         show_df = df[["date", "price", "count", "market_cnt", "avg3"]].copy()
