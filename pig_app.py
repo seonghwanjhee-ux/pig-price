@@ -339,7 +339,7 @@ with tab1:
 # ════════════════════════════════════════════════════════════
 with tab2:
 
-    def supply_chart(df_supply: pd.DataFrame, title: str, x_label: str) -> go.Figure:
+    def supply_chart(df_supply: pd.DataFrame, title: str, is_week: bool = False) -> go.Figure:
         if df_supply.empty:
             return None
 
@@ -348,26 +348,35 @@ with tab2:
         if df_cur.empty:
             return None
 
+        # hover 텍스트용 라벨
+        if is_week:
+            hover_label = [f"{year}년 {int(p)}주차" for p in df_cur["period"]]
+        else:
+            hover_label = [f"{int(p)}월" for p in df_cur["period"]]
+
         fig = make_subplots(specs=[[{"secondary_y": True}]])
 
         # 막대: 평년 / 전년 / 올해 출하물량
         fig.add_trace(go.Bar(
             x=df_cur["period"], y=df_cur["avg_volume"],
             name="평년 출하두수", marker_color="#bdc3c7", opacity=0.8,
-            hovertemplate=f"{x_label} %{{x}}<br>평년: <b>%{{y:,.0f}}두</b><extra></extra>",
+            customdata=hover_label,
+            hovertemplate="%{customdata}<br>평년: <b>%{y:,.0f}두</b><extra></extra>",
         ), secondary_y=False)
 
         fig.add_trace(go.Bar(
             x=df_cur["period"], y=df_cur["prev_volume"],
             name=f"{year-1}년 출하두수", marker_color="#85c1e9", opacity=0.8,
-            hovertemplate=f"{x_label} %{{x}}<br>{year-1}년: <b>%{{y:,.0f}}두</b><extra></extra>",
+            customdata=hover_label,
+            hovertemplate="%{customdata}<br>" + f"{year-1}년: <b>%{{y:,.0f}}두</b><extra></extra>",
         ), secondary_y=False)
 
         v_cur = df_cur["curr_volume"].notna() & (df_cur["curr_volume"] > 10000)
         fig.add_trace(go.Bar(
             x=df_cur.loc[v_cur, "period"], y=df_cur.loc[v_cur, "curr_volume"],
             name=f"{year}년 출하두수", marker_color="#2ecc71", opacity=0.9,
-            hovertemplate=f"{x_label} %{{x}}<br>{year}년: <b>%{{y:,.0f}}두</b><extra></extra>",
+            customdata=[hover_label[i] for i in df_cur.index[v_cur] - df_cur.index[0]],
+            hovertemplate="%{customdata}<br>" + f"{year}년: <b>%{{y:,.0f}}두</b><extra></extra>",
         ), secondary_y=False)
 
         # 꺾은선: 올해 경락가격
@@ -375,9 +384,9 @@ with tab2:
         fig.add_trace(go.Scatter(
             x=df_cur.loc[p_cur, "period"], y=df_cur.loc[p_cur, "curr_price"],
             name=f"{year}년 경락가격", mode="lines+markers",
-            line=dict(color="#e74c3c", width=2.5),
-            marker=dict(size=6),
-            hovertemplate=f"{x_label} %{{x}}<br>경락가: <b>%{{y:,.0f}}원/kg</b><extra></extra>",
+            line=dict(color="#e74c3c", width=2.5), marker=dict(size=6),
+            customdata=[hover_label[i] for i in df_cur.index[p_cur] - df_cur.index[0]],
+            hovertemplate="%{customdata}<br>경락가: <b>%{y:,.0f}원/kg</b><extra></extra>",
         ), secondary_y=True)
 
         fig.update_layout(
@@ -391,7 +400,7 @@ with tab2:
                 showgrid=False,
                 tickmode="array",
                 tickvals=df_cur["period"].tolist(),
-                ticktext=[f"{int(p)}{x_label}" for p in df_cur["period"].tolist()],
+                ticktext=[str(int(p)) for p in df_cur["period"].tolist()],
             ),
         )
         fig.update_yaxes(
@@ -415,7 +424,7 @@ with tab2:
     else:
         # 월별 차트
         if not df_month.empty:
-            fig_m = supply_chart(df_month, "월별 출하두수 & 경락가격", "월")
+            fig_m = supply_chart(df_month, "월별 출하두수 & 경락가격", is_week=False)
             if fig_m:
                 st.plotly_chart(fig_m, use_container_width=True)
 
@@ -423,7 +432,7 @@ with tab2:
 
         # 주별 차트
         if not df_week.empty:
-            fig_w = supply_chart(df_week, "주별 출하두수 & 경락가격", "주차")
+            fig_w = supply_chart(df_week, f"{date.today().year}년 주별 출하두수 & 경락가격", is_week=True)
             if fig_w:
                 st.plotly_chart(fig_w, use_container_width=True)
 
