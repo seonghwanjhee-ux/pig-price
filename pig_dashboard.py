@@ -467,9 +467,12 @@ def run(fetch_days: int = 1, no_limit: bool = False, end_date: date = None):
 
 def run_fill():
     """price가 None인 날짜만 재수집해서 pig_price_all.csv 업데이트"""
-    print("=" * 55)
-    print(" [FILL 모드] price 없는 날짜만 재수집")
-    print("=" * 55)
+    import sys
+    print("=" * 55, flush=True)
+    print(" [FILL 모드] price 없는 날짜만 재수집", flush=True)
+    print("=" * 55, flush=True)
+    print("  CSV_PATH: %s" % CSV_PATH, flush=True)
+    print("  CSV 존재 여부: %s" % CSV_PATH.exists(), flush=True)
 
     # CSV 로드 (인코딩 순차 시도)
     df = pd.DataFrame()
@@ -486,12 +489,12 @@ def run_fill():
             break
 
     if df.empty:
-        print("  CSV 없음. --from 으로 전체 수집 먼저 실행하세요.")
+        print("  CSV 없음. --from 으로 전체 수집 먼저 실행하세요.", flush=True)
         return
 
     # price가 None인 날짜 추출
     null_dates = df[df["price"].isna()]["date"].dt.date.tolist()
-    print("  재수집 대상: %d일" % len(null_dates))
+    print("  재수집 대상: %d일" % len(null_dates), flush=True)
 
     if not null_dates:
         print("  빈 데이터 없음. 완료.")
