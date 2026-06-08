@@ -45,7 +45,10 @@ st.markdown("""
 
 
 # ── 데이터 로드 ───────────────────────────────────────────────────────────────
-GITHUB_CSV_URL = "https://raw.githubusercontent.com/seonghwanjhee-ux/pig-price/data/pig_price_history.csv"
+GITHUB_BASE      = "https://raw.githubusercontent.com/seonghwanjhee-ux/pig-price/data"
+GITHUB_CSV_URL   = f"{GITHUB_BASE}/pig_price_history.csv"
+GITHUB_MONTH_URL = f"{GITHUB_BASE}/pig_supply_month.csv"
+GITHUB_WEEK_URL  = f"{GITHUB_BASE}/pig_supply_week.csv"
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_data():
@@ -54,9 +57,22 @@ def get_data():
         df["date"] = pd.to_datetime(df["date"], format="%Y%m%d")
         return df.sort_values("date").reset_index(drop=True)
     except Exception as e:
-        st.warning(f"데이터 로드 실패: {str(e)}")
+        st.warning(f"경락가격 데이터 로드 실패: {str(e)}")
         return pd.DataFrame(columns=["date", "price", "count", "market_cnt"])
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_supply_month():
+    try:
+        return pd.read_csv(GITHUB_MONTH_URL, encoding="utf-8-sig")
+    except Exception:
+        return pd.DataFrame()
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_supply_week():
+    try:
+        return pd.read_csv(GITHUB_WEEK_URL, encoding="utf-8-sig")
+    except Exception:
+        return pd.DataFrame()
 
 def refresh_data():
     st.cache_data.clear()
@@ -68,13 +84,11 @@ with st.sidebar:
     st.caption("출처: ekapepia.com\n가축시장·등외제외·전국 제주제외")
     st.divider()
 
-    # 데이터 수집은 GitHub Actions에서만 자동 실행
     st.info("ℹ️ 데이터는 매일 자동으로 수집됩니다 (GitHub Actions)")
     st.caption("로컬 PC에서 수동 수집: python pig_dashboard.py")
 
     st.divider()
 
-    # 날짜 범위 선택
     st.subheader("기간 선택")
     df_all = get_data()
 
@@ -107,7 +121,7 @@ with st.sidebar:
 df_all = get_data()
 
 if len(df_all) == 0:
-    st.warning("데이터가 없습니다. 사이드바에서 데이터를 수집해 주세요.")
+    st.warning("데이터가 없습니다.")
     st.stop()
 
 mask = (df_all["date"].dt.date >= date_start) & (df_all["date"].dt.date <= date_end)
@@ -153,213 +167,273 @@ else:
 st.title("🐷 돼지 가축시장 경락가격 대시보드")
 st.caption("기준: 가축시장·등외제외·전국 제주제외 / 비제주 개별경매장 %d개 미만 시 경락가 없음" % MIN_MARKETS)
 
-
-# ── KPI 카드 ──────────────────────────────────────────────────────────────────
-c1, c2, c3, c4 = st.columns(4)
-
-def kpi_html(label, value, color, sub=None, sub_color="#7f8c8d"):
-    sub_html = f'<div class="kpi-sub" style="color:{sub_color}">{sub}</div>' if sub else ""
-    return f"""
-    <div class="kpi-box">
-        <div class="kpi-label">{label}</div>
-        <div class="kpi-value" style="color:{color}">{value}</div>
-        {sub_html}
-    </div>"""
-
-with c1:
-    st.markdown(kpi_html(
-        f"전일 경락가격<br>{l_date_str}",
-        ("%s원/kg" % fmt(l_price)) if l_price else "경락가 없음",
-        "#2c3e50" if l_price else "#e74c3c",
-    ), unsafe_allow_html=True)
-
-with c2:
-    st.markdown(kpi_html(
-        "직전 3거래일 산술평균",
-        ("%s원/kg" % fmt(l_avg3)) if l_avg3 else "-",
-        "#8e44ad",
-        sub=avg3_ds, sub_color=avg3_dc,
-    ), unsafe_allow_html=True)
-
-with c3:
-    st.markdown(kpi_html(
-        "직전 거래일 대비 등락",
-        ds, dc,
-    ), unsafe_allow_html=True)
-
-with c4:
-    st.markdown(kpi_html(
-        f"경매 두수 / 경매장<br>{l_date_str}",
-        "%s두 / %d개" % (fmt(l_cnt), l_mkt),
-        "#27ae60" if l_mkt >= MIN_MARKETS else "#e67e22",
-    ), unsafe_allow_html=True)
-
-st.markdown("<br>", unsafe_allow_html=True)
+tab1, tab2 = st.tabs(["📈 일별 현황", "📦 출하물량 분석"])
 
 
-# ── 2주간 경락가격 표 ─────────────────────────────────────────────────────────
-def make_2week_table(df_all: pd.DataFrame) -> pd.DataFrame:
-    col_labels = ["월", "화", "수", "목", "금"]
-    biz = df_all[df_all["date"].dt.weekday < 5].copy()
+# ════════════════════════════════════════════════════════════
+# TAB 1: 일별 현황
+# ════════════════════════════════════════════════════════════
+with tab1:
 
-    # 주차별로 묶기 (연도+주차 키로 구분)
-    weeks = {}
-    for _, r in biz.iterrows():
-        iso = r["date"].isocalendar()
-        key = (iso[0], iso[1])  # (연도, 주차)
-        if key not in weeks:
-            weeks[key] = {}
-        price_str = f"{int(r['price']):,}원" if pd.notna(r["price"]) else "-"
-        weeks[key][r["date"].weekday()] = (r["date"].strftime("%m/%d"), price_str)
+    # ── KPI 카드 ──────────────────────────────────────────────────────────────
+    def kpi_html(label, value, color, sub=None, sub_color="#7f8c8d"):
+        sub_html = f'<div class="kpi-sub" style="color:{sub_color}">{sub}</div>' if sub else ""
+        return f"""
+        <div class="kpi-box">
+            <div class="kpi-label">{label}</div>
+            <div class="kpi-value" style="color:{color}">{value}</div>
+            {sub_html}
+        </div>"""
 
-    # 마지막 2주만 사용
-    last_2_keys = sorted(weeks.keys())[-2:]
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.markdown(kpi_html(
+            f"전일 경락가격<br>{l_date_str}",
+            ("%s원/kg" % fmt(l_price)) if l_price else "경락가 없음",
+            "#2c3e50" if l_price else "#e74c3c",
+        ), unsafe_allow_html=True)
+    with c2:
+        st.markdown(kpi_html(
+            "직전 3거래일 산술평균",
+            ("%s원/kg" % fmt(l_avg3)) if l_avg3 else "-",
+            "#8e44ad",
+            sub=avg3_ds, sub_color=avg3_dc,
+        ), unsafe_allow_html=True)
+    with c3:
+        st.markdown(kpi_html(
+            "직전 거래일 대비 등락",
+            ds, dc,
+        ), unsafe_allow_html=True)
+    with c4:
+        st.markdown(kpi_html(
+            f"경매 두수 / 경매장<br>{l_date_str}",
+            "%s두 / %d개" % (fmt(l_cnt), l_mkt),
+            "#27ae60" if l_mkt >= MIN_MARKETS else "#e67e22",
+        ), unsafe_allow_html=True)
 
-    # 오래된 주가 위로 (오름차순 정렬)
-    table_rows = []
-    for key in last_2_keys:
-        week_data = weeks[key]
-        # 주 날짜 범위 계산
-        dates_in_week = [v[0] for v in week_data.values()]
-        date_range = f"{min(dates_in_week)} ~ {max(dates_in_week)}"
+    st.markdown("<br>", unsafe_allow_html=True)
 
-        row = {"기간": date_range}
-        for i, label in enumerate(col_labels):
-            if i in week_data:
-                row[label] = week_data[i][1]
-            else:
-                row[label] = "-"
-        table_rows.append(row)
+    # ── 2주간 경락가격 표 ──────────────────────────────────────────────────────
+    def make_2week_table(df_src: pd.DataFrame) -> pd.DataFrame:
+        col_labels = ["월", "화", "수", "목", "금"]
+        biz = df_src[df_src["date"].dt.weekday < 5].copy()
+        weeks = {}
+        for _, r in biz.iterrows():
+            iso = r["date"].isocalendar()
+            key = (iso[0], iso[1])
+            if key not in weeks:
+                weeks[key] = {}
+            price_str = f"{int(r['price']):,}원" if pd.notna(r["price"]) else "-"
+            weeks[key][r["date"].weekday()] = (r["date"].strftime("%m/%d"), price_str)
+        last_2_keys = sorted(weeks.keys())[-2:]
+        table_rows = []
+        for key in last_2_keys:
+            week_data = weeks[key]
+            dates_in_week = [v[0] for v in week_data.values()]
+            date_range = f"{min(dates_in_week)} ~ {max(dates_in_week)}"
+            row = {"기간": date_range}
+            for i, label in enumerate(col_labels):
+                row[label] = week_data[i][1] if i in week_data else "-"
+            table_rows.append(row)
+        return pd.DataFrame(table_rows)
 
-    return pd.DataFrame(table_rows)
+    st.subheader("최근 2주 경락가격")
+    tbl = make_2week_table(df_all)
+    st.dataframe(
+        tbl, use_container_width=True, hide_index=True,
+        column_config={
+            "기간": st.column_config.TextColumn("기간", width="medium"),
+            **{col: st.column_config.TextColumn(col, width="small") for col in ["월","화","수","목","금"]},
+        },
+    )
 
-st.subheader("최근 2주 경락가격")
-tbl = make_2week_table(df_all)
-st.dataframe(
-    tbl,
-    use_container_width=True,
-    hide_index=True,
-    column_config={
-        "기간": st.column_config.TextColumn("기간", width="medium"),
-        **{col: st.column_config.TextColumn(col, width="small") for col in ["월", "화", "수", "목", "금"]},
-    },
-)
+    st.markdown("<br>", unsafe_allow_html=True)
 
-st.markdown("<br>", unsafe_allow_html=True)
+    # ── 경락가격 추이 차트 ────────────────────────────────────────────────────
+    valid_mask = df["price"].notna()
+    no_price   = df[~valid_mask & (df["count"] > 0)]
 
+    fig = make_subplots(
+        rows=2, cols=2,
+        row_heights=[0.62, 0.38],
+        specs=[[{"colspan": 2}, None], [{}, {}]],
+        subplot_titles=("경락가격 추이  (원/kg)", "일별 경매 두수", "일별 활성 경매장 수"),
+        vertical_spacing=0.12,
+        horizontal_spacing=0.08,
+    )
 
-# ── 경락가격 추이 차트 ────────────────────────────────────────────────────────
-valid_mask = df["price"].notna()
-no_price   = df[~valid_mask & (df["count"] > 0)]
+    fig.add_trace(go.Scatter(
+        x=df.loc[valid_mask, "date"], y=df.loc[valid_mask, "price"],
+        name="전일 경락가격", mode="lines+markers",
+        line=dict(color="#3498db", width=2), marker=dict(size=5),
+        fill="tozeroy", fillcolor="rgba(52,152,219,0.07)",
+        hovertemplate="%{x|%Y-%m-%d}<br>경락가: <b>%{y:,.0f}원/kg</b><extra></extra>",
+    ), row=1, col=1)
 
-fig = make_subplots(
-    rows=2, cols=2,
-    row_heights=[0.62, 0.38],
-    specs=[[{"colspan": 2}, None], [{}, {}]],
-    subplot_titles=(
-        "경락가격 추이  (원/kg)",
-        "일별 경매 두수",
-        "일별 활성 경매장 수",
-    ),
-    vertical_spacing=0.12,
-    horizontal_spacing=0.08,
-)
+    avg_mask = df["avg3"].notna()
+    fig.add_trace(go.Scatter(
+        x=df.loc[avg_mask, "date"], y=df.loc[avg_mask, "avg3"],
+        name="직전 3거래일 평균", mode="lines+markers",
+        line=dict(color="#e74c3c", width=2, dash="dash"), marker=dict(size=4, symbol="square"),
+        hovertemplate="%{x|%Y-%m-%d}<br>3일평균: <b>%{y:,.0f}원/kg</b><extra></extra>",
+    ), row=1, col=1)
 
-# 경락가격 선
-fig.add_trace(go.Scatter(
-    x=df.loc[valid_mask, "date"], y=df.loc[valid_mask, "price"],
-    name="전일 경락가격",
-    mode="lines+markers",
-    line=dict(color="#3498db", width=2),
-    marker=dict(size=5),
-    fill="tozeroy", fillcolor="rgba(52,152,219,0.07)",
-    hovertemplate="%{x|%Y-%m-%d}<br>경락가: <b>%{y:,.0f}원/kg</b><extra></extra>",
-), row=1, col=1)
+    for _, nr in no_price.iterrows():
+        x_str = nr["date"].strftime("%Y-%m-%d")
+        fig.add_shape(type="line", x0=x_str, x1=x_str, y0=y_min, y1=y_max,
+            line=dict(color="#e67e22", width=1, dash="dot"), row=1, col=1)
+        fig.add_annotation(x=x_str, y=y_min, text="없음", textangle=-90,
+            font=dict(size=9, color="#e67e22"), showarrow=False, yanchor="bottom", row=1, col=1)
 
-# 3거래일 평균 선
-avg_mask = df["avg3"].notna()
-fig.add_trace(go.Scatter(
-    x=df.loc[avg_mask, "date"], y=df.loc[avg_mask, "avg3"],
-    name="직전 3거래일 평균",
-    mode="lines+markers",
-    line=dict(color="#e74c3c", width=2, dash="dash"),
-    marker=dict(size=4, symbol="square"),
-    hovertemplate="%{x|%Y-%m-%d}<br>3일평균: <b>%{y:,.0f}원/kg</b><extra></extra>",
-), row=1, col=1)
+    fig.update_yaxes(range=[y_min, y_max], tickformat=",", row=1, col=1)
 
-# 경락가 없는 날 수직선
-for _, nr in no_price.iterrows():
-    x_str = nr["date"].strftime("%Y-%m-%d")
-    fig.add_shape(type="line",
-        x0=x_str, x1=x_str, y0=y_min, y1=y_max,
-        line=dict(color="#e67e22", width=1, dash="dot"),
-        row=1, col=1)
-    fig.add_annotation(
-        x=x_str, y=y_min, text="없음", textangle=-90,
-        font=dict(size=9, color="#e67e22"),
-        showarrow=False, yanchor="bottom",
-        row=1, col=1)
+    mean_cnt   = df.loc[valid_mask, "count"].mean() if valid_mask.any() else 0
+    bar_colors = []
+    for _, row_r in df.iterrows():
+        if not pd.notna(row_r.get("price")):
+            bar_colors.append("#f0b27a")
+        elif row_r["count"] >= mean_cnt:
+            bar_colors.append("#2ecc71")
+        else:
+            bar_colors.append("#95a5a6")
 
-fig.update_yaxes(range=[y_min, y_max], tickformat=",", row=1, col=1)
-
-
-# 경매 두수 막대
-mean_cnt   = df.loc[valid_mask, "count"].mean() if valid_mask.any() else 0
-bar_colors = []
-for _, row_r in df.iterrows():
-    if not pd.notna(row_r.get("price")):
-        bar_colors.append("#f0b27a")
-    elif row_r["count"] >= mean_cnt:
-        bar_colors.append("#2ecc71")
-    else:
-        bar_colors.append("#95a5a6")
-
-fig.add_trace(go.Bar(
-    x=df["date"], y=df["count"],
-    name="경매 두수",
-    marker_color=bar_colors,
-    hovertemplate="%{x|%Y-%m-%d}<br>두수: <b>%{y:,.0f}두</b><extra></extra>",
-), row=2, col=1)
-fig.add_hline(y=mean_cnt, line_dash="dash", line_color="#e74c3c",
-              annotation_text="평균 %s두" % fmt(mean_cnt),
-              annotation_position="top right",
-              row=2, col=1)
-fig.update_yaxes(tickformat=",", row=2, col=1)
-
-
-# 경매장 수 막대
-if "market_cnt" in df.columns:
-    mc = pd.to_numeric(df["market_cnt"], errors="coerce").fillna(0)
-    mkt_colors = ["#27ae60" if v >= MIN_MARKETS else "#e74c3c" for v in mc]
     fig.add_trace(go.Bar(
-        x=df["date"], y=mc,
-        name="활성 경매장",
-        marker_color=mkt_colors,
-        hovertemplate="%{x|%Y-%m-%d}<br>경매장: <b>%{y}개</b><extra></extra>",
-    ), row=2, col=2)
-    fig.add_hline(y=MIN_MARKETS, line_dash="dash", line_color="#e67e22",
-                  annotation_text="기준 %d개" % MIN_MARKETS,
-                  annotation_position="top right",
-                  row=2, col=2)
+        x=df["date"], y=df["count"], name="경매 두수", marker_color=bar_colors,
+        hovertemplate="%{x|%Y-%m-%d}<br>두수: <b>%{y:,.0f}두</b><extra></extra>",
+    ), row=2, col=1)
+    fig.add_hline(y=mean_cnt, line_dash="dash", line_color="#e74c3c",
+                  annotation_text="평균 %s두" % fmt(mean_cnt),
+                  annotation_position="top right", row=2, col=1)
+    fig.update_yaxes(tickformat=",", row=2, col=1)
 
-fig.update_layout(
-    height=680,
-    plot_bgcolor="white",
-    paper_bgcolor="#f8f9fa",
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-    margin=dict(l=10, r=10, t=60, b=10),
-    hovermode="x unified",
-)
-fig.update_xaxes(showgrid=False)
-fig.update_yaxes(showgrid=True, gridcolor="#f0f0f0")
+    if "market_cnt" in df.columns:
+        mc = pd.to_numeric(df["market_cnt"], errors="coerce").fillna(0)
+        mkt_colors = ["#27ae60" if v >= MIN_MARKETS else "#e74c3c" for v in mc]
+        fig.add_trace(go.Bar(
+            x=df["date"], y=mc, name="활성 경매장", marker_color=mkt_colors,
+            hovertemplate="%{x|%Y-%m-%d}<br>경매장: <b>%{y}개</b><extra></extra>",
+        ), row=2, col=2)
+        fig.add_hline(y=MIN_MARKETS, line_dash="dash", line_color="#e67e22",
+                      annotation_text="기준 %d개" % MIN_MARKETS,
+                      annotation_position="top right", row=2, col=2)
 
-st.plotly_chart(fig, use_container_width=True)
+    fig.update_layout(
+        height=680, plot_bgcolor="white", paper_bgcolor="#f8f9fa",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        margin=dict(l=10, r=10, t=60, b=10), hovermode="x unified",
+    )
+    fig.update_xaxes(showgrid=False)
+    fig.update_yaxes(showgrid=True, gridcolor="#f0f0f0")
+    st.plotly_chart(fig, use_container_width=True)
+
+    with st.expander("📋 원본 데이터 보기"):
+        show_df = df[["date", "price", "count", "market_cnt", "avg3"]].copy()
+        show_df.columns = ["날짜", "경락가(원/kg)", "두수", "경매장수", "3일평균"]
+        show_df["날짜"] = show_df["날짜"].dt.strftime("%Y-%m-%d")
+        show_df = show_df.sort_values("날짜", ascending=False).reset_index(drop=True)
+        st.dataframe(show_df, use_container_width=True, height=300)
 
 
-# ── 데이터 테이블 ─────────────────────────────────────────────────────────────
-with st.expander("📋 원본 데이터 보기"):
-    show_df = df[["date", "price", "count", "market_cnt", "avg3"]].copy()
-    show_df.columns = ["날짜", "경락가(원/kg)", "두수", "경매장수", "3일평균"]
-    show_df["날짜"] = show_df["날짜"].dt.strftime("%Y-%m-%d")
-    show_df = show_df.sort_values("날짜", ascending=False).reset_index(drop=True)
-    st.dataframe(show_df, use_container_width=True, height=300)
+# ════════════════════════════════════════════════════════════
+# TAB 2: 출하물량 분석
+# ════════════════════════════════════════════════════════════
+with tab2:
+
+    def supply_chart(df_supply: pd.DataFrame, title: str, x_label: str) -> go.Figure:
+        if df_supply.empty:
+            return None
+
+        year = date.today().year
+        df_cur = df_supply[df_supply["year"] == year].copy()
+        if df_cur.empty:
+            return None
+
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+        # 막대: 평년 / 전년 / 올해 출하물량
+        fig.add_trace(go.Bar(
+            x=df_cur["period"], y=df_cur["avg_volume"],
+            name="평년 출하두수", marker_color="#bdc3c7", opacity=0.8,
+            hovertemplate=f"{x_label} %{{x}}<br>평년: <b>%{{y:,.0f}}두</b><extra></extra>",
+        ), secondary_y=False)
+
+        fig.add_trace(go.Bar(
+            x=df_cur["period"], y=df_cur["prev_volume"],
+            name=f"{year-1}년 출하두수", marker_color="#85c1e9", opacity=0.8,
+            hovertemplate=f"{x_label} %{{x}}<br>{year-1}년: <b>%{{y:,.0f}}두</b><extra></extra>",
+        ), secondary_y=False)
+
+        v_cur = df_cur["curr_volume"].notna() & (df_cur["curr_volume"] > 10000)
+        fig.add_trace(go.Bar(
+            x=df_cur.loc[v_cur, "period"], y=df_cur.loc[v_cur, "curr_volume"],
+            name=f"{year}년 출하두수", marker_color="#2ecc71", opacity=0.9,
+            hovertemplate=f"{x_label} %{{x}}<br>{year}년: <b>%{{y:,.0f}}두</b><extra></extra>",
+        ), secondary_y=False)
+
+        # 꺾은선: 올해 경락가격
+        p_cur = df_cur["curr_price"].notna()
+        fig.add_trace(go.Scatter(
+            x=df_cur.loc[p_cur, "period"], y=df_cur.loc[p_cur, "curr_price"],
+            name=f"{year}년 경락가격", mode="lines+markers",
+            line=dict(color="#e74c3c", width=2.5),
+            marker=dict(size=6),
+            hovertemplate=f"{x_label} %{{x}}<br>경락가: <b>%{{y:,.0f}}원/kg</b><extra></extra>",
+        ), secondary_y=True)
+
+        fig.update_layout(
+            title=title, height=480,
+            plot_bgcolor="white", paper_bgcolor="#f8f9fa",
+            barmode="group",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+            margin=dict(l=10, r=10, t=80, b=10),
+            hovermode="x unified",
+            xaxis=dict(title=x_label, showgrid=False, dtick=1),
+        )
+        fig.update_yaxes(
+            title_text="출하두수 (두)", tickformat=",", secondary_y=False,
+            showgrid=True, gridcolor="#f0f0f0"
+        )
+        fig.update_yaxes(
+            title_text="경락가격 (원/kg)", tickformat=",", secondary_y=True,
+            showgrid=False
+        )
+        return fig
+
+    st.subheader("📦 출하물량 & 경락가격 분석")
+    st.caption(f"출처: ekapepia.com | 매주 월요일 자동 업데이트")
+
+    df_month = get_supply_month()
+    df_week  = get_supply_week()
+
+    if df_month.empty and df_week.empty:
+        st.warning("출하물량 데이터가 없습니다. GitHub Actions에서 weekly-supply 워크플로우를 먼저 실행해주세요.")
+    else:
+        # 월별 차트
+        if not df_month.empty:
+            fig_m = supply_chart(df_month, "월별 출하두수 & 경락가격", "월")
+            if fig_m:
+                st.plotly_chart(fig_m, use_container_width=True)
+
+        st.divider()
+
+        # 주별 차트
+        if not df_week.empty:
+            fig_w = supply_chart(df_week, "주별 출하두수 & 경락가격", "주차")
+            if fig_w:
+                st.plotly_chart(fig_w, use_container_width=True)
+
+        # 원본 데이터
+        with st.expander("📋 출하물량 원본 데이터 보기"):
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.markdown("**월별**")
+                if not df_month.empty:
+                    show_m = df_month[df_month["year"] == date.today().year].copy()
+                    show_m.columns = ["연도","월","평년가격","전년가격","올해가격","평년물량","전년물량","올해물량"]
+                    st.dataframe(show_m.drop(columns=["연도"]), use_container_width=True, hide_index=True)
+            with col_b:
+                st.markdown("**주별**")
+                if not df_week.empty:
+                    show_w = df_week[df_week["year"] == date.today().year].copy()
+                    show_w.columns = ["연도","주차","평년가격","전년가격","올해가격","평년물량","전년물량","올해물량"]
+                    st.dataframe(show_w.drop(columns=["연도"]), use_container_width=True, hide_index=True)

@@ -1,0 +1,62 @@
+name: Weekly Supply Data Collection
+
+on:
+  schedule:
+    - cron: '0 0 * * 1'   # 매주 월요일 UTC 00:00 = KST 09:00
+  workflow_dispatch:        # 수동 실행 버튼
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main (코드)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Checkout data 브랜치 CSV
+        run: |
+          git fetch origin data || true
+          if git show-ref --verify --quiet refs/remotes/origin/data; then
+            git checkout origin/data -- pig_supply_month.csv || true
+            git checkout origin/data -- pig_supply_week.csv  || true
+            echo "기존 CSV 불러오기 완료"
+          else
+            echo "data 브랜치 없음"
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install pandas requests beautifulsoup4
+
+      - name: Collect supply data
+        run: python pig_supply.py
+
+      - name: Push CSV to data 브랜치
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+
+          git fetch origin data || true
+
+          if git show-ref --verify --quiet refs/remotes/origin/data; then
+            git checkout origin/data -b data
+          else
+            git checkout --orphan data
+            git rm -rf . --quiet || true
+          fi
+
+          git checkout main -- pig_supply.py
+
+          git add pig_supply_month.csv pig_supply_week.csv 2>/dev/null || true
+          git diff --cached --quiet && echo "변경 없음 → push 생략" && exit 0
+
+          git commit -m "supply: $(date +'%Y-%m-%d') 출하물량 업데이트"
+          git push origin data
