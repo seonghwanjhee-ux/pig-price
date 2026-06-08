@@ -10,7 +10,7 @@ on:
         required: false
         default: ''
       from_date:
-        description: '시작날짜 (mode=from 일 때만, 예: 20260101)'
+        description: '시작날짜 (mode=from 일 때만, 예: 20240101)'
         required: false
         default: ''
 
@@ -24,16 +24,6 @@ jobs:
         with:
           ref: main
 
-      - name: Checkout data 브랜치 CSV
-        run: |
-          git fetch origin data || true
-          if git show-ref --verify --quiet refs/remotes/origin/data; then
-            git checkout origin/data -- pig_price_history.csv || true
-            echo "기존 CSV 불러오기 완료"
-          else
-            echo "data 브랜치 없음 → 새로 생성 예정"
-          fi
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -44,40 +34,87 @@ jobs:
           pip install --upgrade pip
           pip install pandas requests beautifulsoup4 matplotlib
 
-      - name: Collect pig price data
-        run: |
-          if [ "${{ github.event.inputs.mode }}" = "init" ]; then
-            echo "=== 초기 수집 모드: 90일치 수집 ==="
-            python pig_dashboard.py --init
-          elif [ "${{ github.event.inputs.mode }}" = "from" ]; then
-            echo "=== 날짜 지정 수집: ${{ github.event.inputs.from_date }} 부터 ==="
-            python pig_dashboard.py --from ${{ github.event.inputs.from_date }}
-          elif [ "${{ github.event.inputs.mode }}" = "all" ]; then
-            echo "=== 전체 수집 모드: 경매장 제한 없음 ==="
-            python pig_dashboard.py --from ${{ github.event.inputs.from_date }} --all
-          else
-            echo "=== 일반 모드: 오늘 1일치 수집 ==="
-            python pig_dashboard.py
-          fi
-
-      - name: Push CSV to data 브랜치
+      - name: Collect pig price data (청크 단위 수집 + 매번 push)
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
 
-          git fetch origin data || true
+          # push 함수 정의
+          push_csv() {
+            git fetch origin data || true
+            if git show-ref --verify --quiet refs/remotes/origin/data; then
+              git checkout origin/data -b data_push 2>/dev/null || git checkout data_push
+            else
+              git checkout --orphan data_push
+              git rm -rf . --quiet || true
+            fi
 
-          if git show-ref --verify --quiet refs/remotes/origin/data; then
-            git checkout origin/data -b data
+            cp /home/runner/work/pig-price/pig-price/pig_price_all.csv ./pig_price_all.csv 2>/dev/null || true
+            git add pig_price_all.csv
+            git diff --cached --quiet && echo "변경 없음" && git checkout main && return 0
+
+            git commit -m "data: $(date +'%Y-%m-%d %H:%M') 경락가격 업데이트"
+            git push origin data_push:data
+            git checkout main
+          }
+
+          if [ "${{ github.event.inputs.mode }}" = "from" ]; then
+            FROM="${{ github.event.inputs.from_date }}"
+            echo "=== 청크 수집 모드: ${FROM} 부터 ==="
+
+            # Python으로 100일씩 청크 날짜 목록 생성
+            python3 - <<PYEOF
+          import sys
+          from datetime import date, timedelta
+
+          from_str = "${FROM}"
+          start = date(int(from_str[:4]), int(from_str[4:6]), int(from_str[6:8]))
+          end   = date.today()
+          chunk = 100
+
+          dates = []
+          cur = start
+          while cur < end:
+            nxt = min(cur + timedelta(days=chunk), end)
+            dates.append((cur.strftime("%Y%m%d"), nxt.strftime("%Y%m%d")))
+            cur = nxt
+
+          with open("chunks.txt", "w") as f:
+            for s, e in dates:
+              f.write(f"{s} {e}\n")
+          print(f"총 {len(dates)}개 청크 생성")
+          PYEOF
+
+            # 청크별 수집 + push
+            while IFS=' ' read -r chunk_start chunk_end; do
+              echo "--- 수집: ${chunk_start} ~ ${chunk_end} ---"
+
+              # 기존 CSV 가져오기
+              git fetch origin data || true
+              if git show-ref --verify --quiet refs/remotes/origin/data; then
+                git checkout origin/data -- pig_price_all.csv || true
+              fi
+
+              python pig_dashboard.py --from "${chunk_start}"
+              push_csv
+              echo "--- push 완료: ${chunk_start} ~ ${chunk_end} ---"
+            done < chunks.txt
+
+          elif [ "${{ github.event.inputs.mode }}" = "init" ]; then
+            git fetch origin data || true
+            if git show-ref --verify --quiet refs/remotes/origin/data; then
+              git checkout origin/data -- pig_price_all.csv || true
+            fi
+            echo "=== 초기 수집: 90일치 ==="
+            python pig_dashboard.py --init
+            push_csv
+
           else
-            git checkout --orphan data
-            git rm -rf . --quiet || true
+            git fetch origin data || true
+            if git show-ref --verify --quiet refs/remotes/origin/data; then
+              git checkout origin/data -- pig_price_all.csv || true
+            fi
+            echo "=== 일반 모드: 오늘 1일치 ==="
+            python pig_dashboard.py
+            push_csv
           fi
-
-          cp /home/runner/work/*/*/pig_price_history.csv ./pig_price_history.csv 2>/dev/null || true
-
-          git add pig_price_history.csv
-          git diff --cached --quiet && echo "변경 없음 → push 생략" && exit 0
-
-          git commit -m "data: $(date +'%Y-%m-%d') 경락가격 업데이트"
-          git push origin data

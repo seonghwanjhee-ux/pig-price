@@ -69,24 +69,30 @@ def scrape_pig_price(target_date: date) -> Optional[dict]:
     date_str = target_date.strftime("%Y-%m-%d")
     ymd      = target_date.strftime("%Y%m%d")
 
-    try:
-        s = requests.Session()
-        s.headers.update({
-            "User-Agent"     : "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept-Language": "ko-KR,ko;q=0.9",
-            "Referer"        : SCRAPE_URL,
-        })
-        r = s.get(SCRAPE_URL, params={
-            "searchStartDate" : date_str,
-            "searchEndDate"   : date_str,
-            "searchCondition" : "2",
-            "searchCondition1": "",
-            "searchCondition2": "1",
-        }, timeout=15)
-        r.raise_for_status()
-    except Exception as e:
-        print("  [ERR] 요청 실패: %s" % e)
-        return None
+    import time
+    for attempt in range(3):  # 최대 3회 재시도
+        try:
+            s = requests.Session()
+            s.headers.update({
+                "User-Agent"     : "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Accept-Language": "ko-KR,ko;q=0.9",
+                "Referer"        : SCRAPE_URL,
+            })
+            r = s.get(SCRAPE_URL, params={
+                "searchStartDate" : date_str,
+                "searchEndDate"   : date_str,
+                "searchCondition" : "2",
+                "searchCondition1": "",
+                "searchCondition2": "1",
+            }, timeout=15)
+            r.raise_for_status()
+            break  # 성공 시 루프 탈출
+        except Exception as e:
+            print("  [ERR] 요청 실패 (시도 %d/3): %s" % (attempt + 1, e))
+            if attempt < 2:
+                time.sleep(10)  # 실패 시 10초 대기 후 재시도
+            else:
+                return None
 
     soup  = BeautifulSoup(r.text, "html.parser")
     table = soup.find("table")
@@ -431,8 +437,11 @@ def run(fetch_days: int = 1, no_limit: bool = False):
                 new_rows.append(row)
             else:
                 print("  %s  데이터 없음 (공휴일/휴장)" % d.strftime("%Y%m%d"))
-            if fetch_days > 10 and i % 10 == 9:
-                import time; time.sleep(1)
+            if fetch_days > 10:
+                import time
+                time.sleep(0.5)          # 매 요청마다 0.5초 대기
+                if i % 50 == 49:
+                    time.sleep(5)        # 50건마다 5초 추가 대기
 
     print("[2/3] CSV 저장 중...")
     try:
