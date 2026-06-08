@@ -6,7 +6,11 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: '실행 모드 (init 입력 시 90일 초기수집 / 비워두면 오늘 1일치)'
+        description: '실행 모드 (init=90일 / from=날짜지정 / 비워두면 1일치)'
+        required: false
+        default: ''
+      from_date:
+        description: '시작날짜 (mode=from 일 때만, 예: 20260101)'
         required: false
         default: ''
 
@@ -45,6 +49,9 @@ jobs:
           if [ "${{ github.event.inputs.mode }}" = "init" ]; then
             echo "=== 초기 수집 모드: 90일치 수집 ==="
             python pig_dashboard.py --init
+          elif [ "${{ github.event.inputs.mode }}" = "from" ]; then
+            echo "=== 날짜 지정 수집: ${{ github.event.inputs.from_date }} 부터 ==="
+            python pig_dashboard.py --from ${{ github.event.inputs.from_date }}
           else
             echo "=== 일반 모드: 오늘 1일치 수집 ==="
             python pig_dashboard.py

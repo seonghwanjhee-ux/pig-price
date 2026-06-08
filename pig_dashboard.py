@@ -421,7 +421,7 @@ def run(fetch_days: int = 1):
             target_dates[-1].strftime("%Y%m%d"),
             len(target_dates)))
 
-        for d in target_dates:
+        for i, d in enumerate(target_dates):
             row = scrape_pig_price(d)
             if row and row["count"] > 0:
                 label = "경락가 없음 (%d개)" % row["market_cnt"] if row["price"] is None \
@@ -431,6 +431,9 @@ def run(fetch_days: int = 1):
                 new_rows.append(row)
             else:
                 print("  %s  데이터 없음 (공휴일/휴장)" % d.strftime("%Y%m%d"))
+            # 대량 수집 시 서버 부하 방지 (10건마다 1초 대기)
+            if fetch_days > 10 and i % 10 == 9:
+                import time; time.sleep(1)
 
     print("[2/3] CSV 저장 중...")
     try:
@@ -453,7 +456,14 @@ def run(fetch_days: int = 1):
 
 
 if __name__ == "__main__":
-    if "--init" in sys.argv:
+    if "--from" in sys.argv:
+        # --from YYYYMMDD : 특정 날짜부터 오늘까지 수집
+        idx = sys.argv.index("--from")
+        start_str = sys.argv[idx + 1]
+        start_date = date(int(start_str[:4]), int(start_str[4:6]), int(start_str[6:8]))
+        days = (date.today() - start_date).days
+        run(fetch_days=days)
+    elif "--init" in sys.argv:
         run(fetch_days=90)
     else:
         run(fetch_days=1)
