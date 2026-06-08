@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: '실행 모드 (init=90일 / from=날짜지정 / 비워두면 1일치)'
+        description: '실행 모드 (init=90일 / from=날짜지정 / fill=빈날짜재수집 / 비워두면 1일치)'
         required: false
         default: ''
       from_date:
@@ -95,10 +95,22 @@ jobs:
                 git checkout origin/data -- pig_price_all.csv || true
               fi
 
-              python pig_dashboard.py --from "${chunk_start}"
+              python pig_dashboard.py --from "${chunk_start}" --to "${chunk_end}"
               push_csv
               echo "--- push 완료: ${chunk_start} ~ ${chunk_end} ---"
             done < chunks.txt
+
+          elif [ "${{ github.event.inputs.mode }}" = "fill" ]; then
+            git fetch origin data || true
+            if git show-ref --verify --quiet refs/remotes/origin/data; then
+              # pig_price_history.csv → pig_price_all.csv 로 복사 (없으면)
+              git checkout origin/data -- pig_price_all.csv 2>/dev/null || \
+              git checkout origin/data -- pig_price_history.csv && \
+              cp pig_price_history.csv pig_price_all.csv || true
+            fi
+            echo "=== FILL 모드: price 없는 날짜만 재수집 ==="
+            python pig_dashboard.py --fill
+            push_csv
 
           elif [ "${{ github.event.inputs.mode }}" = "init" ]; then
             git fetch origin data || true

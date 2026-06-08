@@ -398,7 +398,7 @@ def draw_dashboard(df: pd.DataFrame):
 
 
 # ── 6. 메인 실행 ──────────────────────────────────────────────────────────────
-def run(fetch_days: int = 1, no_limit: bool = False):
+def run(fetch_days: int = 1, no_limit: bool = False, end_date: date = None):
     print("=" * 55)
     print(" 돼지 가축시장 경락가격 대시보드")
     print(" 출처: ekapepia.com")
@@ -418,7 +418,7 @@ def run(fetch_days: int = 1, no_limit: bool = False):
         else:
             print("  최근 10 영업일 내 데이터 없음.")
     else:
-        end   = prev_business_day()
+        end   = prev_business_day(end_date) if end_date else prev_business_day()
         start = prev_business_day(date.today() - timedelta(days=fetch_days * 2))
         target_dates = business_days_range(start, end)[-fetch_days:]
 
@@ -455,22 +455,84 @@ def run(fetch_days: int = 1, no_limit: bool = False):
 
     if not no_limit and len(df) >= 2:
         print("[3/3] 대시보드 생성 중...")
-        draw_dashboard(df)
+        try:
+            draw_dashboard(df)
+        except Exception as e:
+            print("  [경고] 차트 생성 실패 (데이터는 저장됨): %s" % e)
     else:
-        print("[3/3] 완료 (no_limit 모드는 차트 생략)")
+        print("[3/3] 완료")
 
     print("\n[완료]")
 
 
-if __name__ == "__main__":
-    no_limit = "--all" in sys.argv   # 경매장 제한 없는 전체 수집 모드
+def run_fill():
+    """price가 None인 날짜만 재수집해서 pig_price_all.csv 업데이트"""
+    print("=" * 55)
+    print(" [FILL 모드] price 없는 날짜만 재수집")
+    print("=" * 55)
 
-    if "--from" in sys.argv:
+    # CSV 로드
+    df = load_history()
+    if df.empty:
+        print("  CSV 없음. --from 으로 전체 수집 먼저 실행하세요.")
+        return
+
+    # price가 None인 날짜 추출
+    null_dates = df[df["price"].isna()]["date"].dt.date.tolist()
+    print("  재수집 대상: %d일" % len(null_dates))
+
+    if not null_dates:
+        print("  빈 데이터 없음. 완료.")
+        return
+
+    import time
+    new_rows = []
+    for i, d in enumerate(null_dates):
+        row = scrape_pig_price(d)
+        if row and row["count"] > 0 and row["price"] is not None:
+            print("  %s  %s원  경매장=%d개" % (row["date"], fmt(row["price"]), row["market_cnt"]))
+            new_rows.append(row)
+        else:
+            print("  %s  여전히 데이터 없음" % d.strftime("%Y%m%d"))
+        time.sleep(0.5)
+        if i % 50 == 49:
+            time.sleep(5)
+
+    if not new_rows:
+        print("  새로 수집된 데이터 없음.")
+        return
+
+    # 기존 데이터에서 해당 날짜 제거 후 새 데이터로 교체
+    new_df = pd.DataFrame(new_rows)
+    new_df["date"] = pd.to_datetime(new_df["date"], format="%Y%m%d")
+    fill_dates = set(new_df["date"].dt.strftime("%Y%m%d"))
+    df = df[~df["date"].dt.strftime("%Y%m%d").isin(fill_dates)]
+    df = pd.concat([df, new_df], ignore_index=True).sort_values("date").reset_index(drop=True)
+
+    save_history(df)
+    print("  업데이트 완료: %d건 채움" % len(new_rows))
+    print("\n[완료]")
+
+
+if __name__ == "__main__":
+    no_limit = "--all" in sys.argv
+
+    # --to YYYYMMDD 파싱
+    end_date = None
+    if "--to" in sys.argv:
+        idx = sys.argv.index("--to")
+        to_str = sys.argv[idx + 1]
+        end_date = date(int(to_str[:4]), int(to_str[4:6]), int(to_str[6:8]))
+
+    if "--fill" in sys.argv:
+        run_fill()
+    elif "--from" in sys.argv:
         idx = sys.argv.index("--from")
         start_str = sys.argv[idx + 1]
         start_date = date(int(start_str[:4]), int(start_str[4:6]), int(start_str[6:8]))
-        days = (date.today() - start_date).days
-        run(fetch_days=days, no_limit=no_limit)
+        until = end_date or date.today()
+        days = (until - start_date).days
+        run(fetch_days=days, no_limit=no_limit, end_date=end_date)
     elif "--init" in sys.argv:
         run(fetch_days=90, no_limit=no_limit)
     else:
