@@ -144,24 +144,23 @@ with st.sidebar:
         except Exception:
             return None
 
-    if st.button("📋 수집 상태 확인", use_container_width=True):
-        run_info = get_latest_run_status()
-        if run_info is None:
-            st.warning("상태 조회 실패 (토큰 확인)")
-        else:
-            status     = run_info["status"]          # queued / in_progress / completed
-            conclusion = run_info.get("conclusion")  # success / failure / None
-            started    = pd.to_datetime(run_info["run_started_at"]) + pd.Timedelta(hours=9)
-            started_str = started.strftime("%m/%d %H:%M")
+    # 최근 수집 상태 자동 표시
+    run_info = get_latest_run_status()
+    if run_info is not None:
+        status     = run_info["status"]          # queued / in_progress / completed
+        conclusion = run_info.get("conclusion")  # success / failure / None
+        started    = pd.to_datetime(run_info["run_started_at"]) + pd.Timedelta(hours=9)
+        started_str = started.strftime("%m/%d %H:%M")
 
-            if status == "completed" and conclusion == "success":
-                st.success(f"✅ 수집 완료 ({started_str} 시작)\n\n새로고침 버튼을 눌러주세요!")
-            elif status == "completed":
-                st.error(f"❌ 수집 실패 ({started_str}) — GitHub Actions 로그 확인 필요")
-            elif status == "in_progress":
-                st.info(f"⏳ 수집 진행 중... ({started_str} 시작)")
-            else:
-                st.info(f"🕐 대기열에서 대기 중... ({started_str})")
+        if status == "completed" and conclusion == "success":
+            st.success(f"✅ 최근 수집 완료 ({started_str})")
+        elif status == "completed":
+            st.error(f"❌ 최근 수집 실패 ({started_str})")
+        elif status == "in_progress":
+            st.info(f"⏳ 수집 진행 중... ({started_str} 시작)")
+            st.caption("완료되면 새로고침 버튼을 눌러주세요")
+        else:
+            st.info(f"🕐 수집 대기 중... ({started_str})")
 
     if st.button("♻️ 데이터 새로고침", use_container_width=True):
         st.cache_data.clear()
