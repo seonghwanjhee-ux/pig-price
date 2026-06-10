@@ -123,6 +123,46 @@ with st.sidebar:
         else:
             st.error("실행 요청 실패. 토큰 설정을 확인하세요.")
 
+    def get_latest_run_status():
+        """daily-collect 워크플로우 최근 실행 상태 조회"""
+        import requests as rq
+        token = st.secrets.get("GITHUB_TOKEN", "")
+        if not token:
+            return None
+        try:
+            r = rq.get(
+                "https://api.github.com/repos/seonghwanjhee-ux/pig-price/actions/workflows/daily-collect.yml/runs",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/vnd.github+json",
+                },
+                params={"per_page": 1},
+                timeout=15,
+            )
+            runs = r.json().get("workflow_runs", [])
+            return runs[0] if runs else None
+        except Exception:
+            return None
+
+    if st.button("📋 수집 상태 확인", use_container_width=True):
+        run_info = get_latest_run_status()
+        if run_info is None:
+            st.warning("상태 조회 실패 (토큰 확인)")
+        else:
+            status     = run_info["status"]          # queued / in_progress / completed
+            conclusion = run_info.get("conclusion")  # success / failure / None
+            started    = pd.to_datetime(run_info["run_started_at"]) + pd.Timedelta(hours=9)
+            started_str = started.strftime("%m/%d %H:%M")
+
+            if status == "completed" and conclusion == "success":
+                st.success(f"✅ 수집 완료 ({started_str} 시작)\n\n새로고침 버튼을 눌러주세요!")
+            elif status == "completed":
+                st.error(f"❌ 수집 실패 ({started_str}) — GitHub Actions 로그 확인 필요")
+            elif status == "in_progress":
+                st.info(f"⏳ 수집 진행 중... ({started_str} 시작)")
+            else:
+                st.info(f"🕐 대기열에서 대기 중... ({started_str})")
+
     if st.button("♻️ 데이터 새로고침", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
