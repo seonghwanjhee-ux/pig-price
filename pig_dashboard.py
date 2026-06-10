@@ -511,6 +511,60 @@ def run_date(target: date, no_limit: bool = False):
     print("[3/3] 완료\n")
 
 
+def run_catchup(until: date = None):
+    """CSV 마지막 날짜 다음 영업일부터 until(기본: 오늘 전 영업일)까지 빈 날짜 전부 수집.
+    휴가 등으로 며칠 비어도 한 번 실행으로 따라잡음."""
+    print("=" * 55)
+    print(" [CATCHUP 모드] 마지막 수집일 이후 전부 수집")
+    print("=" * 55)
+
+    until = until or prev_business_day()
+
+    try:
+        df = load_history()
+    except Exception:
+        df = pd.DataFrame(columns=["date", "price", "count", "market_cnt"])
+
+    if len(df):
+        last = df["date"].max().date()
+        start = last + timedelta(days=1)
+        print("  CSV 마지막 날짜: %s" % last.strftime("%Y-%m-%d"))
+    else:
+        start = until - timedelta(days=90)
+        print("  CSV 없음 → 최근 90일 수집")
+
+    targets = business_days_range(start, until)
+    if not targets:
+        print("  수집할 날짜 없음. 이미 최신입니다.")
+        return
+
+    print("  수집 대상: %s ~ %s (%d일)" % (
+        targets[0].strftime("%Y%m%d"), targets[-1].strftime("%Y%m%d"), len(targets)))
+
+    import time
+    new_rows = []
+    for i, d in enumerate(targets):
+        row = scrape_pig_price(d)
+        if row and row["count"] > 0:
+            label = "경락가 없음 (%d개)" % row["market_cnt"] if row["price"] is None \
+                    else "%s원" % fmt(row["price"])
+            print("  %s  %s  두수=%s두  경매장=%d개" % (
+                row["date"], label, fmt(row["count"]), row["market_cnt"]), flush=True)
+            new_rows.append(row)
+        else:
+            print("  %s  데이터 없음 (공휴일/휴장)" % d.strftime("%Y%m%d"), flush=True)
+        if len(targets) > 5:
+            time.sleep(0.5)
+
+    df, added = update_history(df, new_rows)
+    if added > 0:
+        save_history(df)
+        print("  누적: 총 %d일  신규 %d건" % (len(df), added))
+    else:
+        print("  신규 데이터 없음.")
+    print("\n[완료]")
+
+
 def run_fill():
     """price가 None인 날짜만 재수집해서 pig_price_all.csv 업데이트"""
     import sys
@@ -585,7 +639,10 @@ if __name__ == "__main__":
         to_str = sys.argv[idx + 1]
         end_date = date(int(to_str[:4]), int(to_str[4:6]), int(to_str[6:8]))
 
-    if "--date" in sys.argv:
+    if "--catchup" in sys.argv:
+        # CSV 마지막 날짜 이후 빈 날짜 전부 수집 (until: --to 지정 가능)
+        run_catchup(until=end_date)
+    elif "--date" in sys.argv:
         # 특정 날짜 1개 직접 수집 (daily-collect.yml 전용)
         idx = sys.argv.index("--date")
         date_str = sys.argv[idx + 1]

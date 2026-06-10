@@ -95,6 +95,38 @@ with st.sidebar:
     st.info("ℹ️ 데이터는 매일 자동으로 수집됩니다 (GitHub Actions)")
     st.caption("로컬 PC에서 수동 수집: python pig_dashboard.py")
 
+    # ── 수동 수집 트리거 버튼 ────────────────────────────────────────────────
+    def trigger_collection():
+        """GitHub Actions daily-collect 워크플로우를 API로 즉시 실행"""
+        import requests as rq
+        token = st.secrets.get("GITHUB_TOKEN", "")
+        if not token:
+            st.error("GITHUB_TOKEN이 설정되지 않았습니다 (Streamlit secrets)")
+            return False
+        r = rq.post(
+            "https://api.github.com/repos/seonghwanjhee-ux/pig-price/actions/workflows/daily-collect.yml/dispatches",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+            },
+            json={"ref": "main"},
+            timeout=15,
+        )
+        return r.status_code == 204
+
+    if st.button("🔄 빈 데이터 지금 수집", use_container_width=True,
+                 help="마지막 수집일 이후 빈 날짜를 전부 수집합니다 (휴가 후에도 OK)"):
+        with st.spinner("GitHub Actions 실행 요청 중..."):
+            ok = trigger_collection()
+        if ok:
+            st.success("수집 시작! 빈 날짜 수에 따라 1~5분 소요. 완료 후 새로고침하세요.")
+        else:
+            st.error("실행 요청 실패. 토큰 설정을 확인하세요.")
+
+    if st.button("♻️ 데이터 새로고침", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
+
     st.divider()
 
     st.subheader("기간 선택")

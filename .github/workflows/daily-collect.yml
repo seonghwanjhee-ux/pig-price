@@ -41,23 +41,19 @@ jobs:
             echo "data 브랜치 없음 (최초 실행)"
           fi
 
-      - name: Collect yesterday's data (KST 기준)
+      - name: Collect missing data (catchup, KST 기준)
         run: |
-          # 수동 실행 시 날짜 지정, 없으면 KST 기준 어제
+          # 특정 날짜 지정 시 그 날짜만, 아니면 CSV 마지막 날짜 이후 전부 수집
           if [ -n "${{ github.event.inputs.target_date }}" ]; then
             TARGET="${{ github.event.inputs.target_date }}"
             echo "=== 날짜 지정 모드: $TARGET ==="
+            python pig_dashboard.py --date "$TARGET"
           else
-            TARGET=$(python3 -c "
-          from datetime import datetime, timezone, timedelta
-          kst = timezone(timedelta(hours=9))
-          yesterday = (datetime.now(kst) - timedelta(days=1)).date()
-          print(yesterday.strftime('%Y%m%d'))
-          ")
-            echo "=== KST 어제 자동 계산: $TARGET ==="
+            # KST 기준 어제까지 빈 날짜 전부 수집
+            UNTIL=$(TZ=Asia/Seoul date -d "yesterday" +%Y%m%d)
+            echo "=== CATCHUP 모드: CSV 마지막 날짜 이후 ~ $UNTIL ==="
+            python pig_dashboard.py --catchup --to "$UNTIL"
           fi
-
-          python pig_dashboard.py --date "$TARGET"
 
       - name: Push CSV to data branch
         run: |
