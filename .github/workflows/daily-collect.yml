@@ -77,6 +77,7 @@ jobs:
           git add pig_price_all.csv
           git diff --cached --quiet && echo "변경 없음 → push 생략" && exit 0
 
-          git commit -m "data: $(python3 -c \"from datetime import datetime,timezone,timedelta; kst=timezone(timedelta(hours=9)); print(datetime.now(kst).strftime('%Y-%m-%d'))\") 경락가격 업데이트"
+          TODAY_KST=$(TZ=Asia/Seoul date +%Y-%m-%d)
+          git commit -m "data: ${TODAY_KST} 경락가격 업데이트"
           git push origin data_push:data
           echo "=== push 완료 ==="
