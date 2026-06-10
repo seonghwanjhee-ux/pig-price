@@ -1,0 +1,143 @@
+name: Bulk Pig Price Collection
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '실행 모드'
+        required: true
+        default: 'fill'
+        type: choice
+        options:
+          - fill     # price 없는 날짜만 재수집
+          - from     # 날짜 지정 청크 수집
+          - init     # 최근 90일 수집
+      from_date:
+        description: '시작날짜 (mode=from 일 때만, 예: 20240101)'
+        required: false
+        default: ''
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350   # 대량 수집 여유 시간
+
+    steps:
+      - name: Checkout main (코드)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install pandas requests beautifulsoup4 matplotlib
+
+      - name: Run bulk collection
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+
+          # push 함수 정의
+          push_csv() {
+            git fetch origin data || true
+            if git show-ref --verify --quiet refs/remotes/origin/data; then
+              git checkout origin/data -b data_push 2>/dev/null || git checkout data_push
+            else
+              git checkout --orphan data_push
+              git rm -rf . --quiet || true
+            fi
+
+            cp /home/runner/work/pig-price/pig-price/pig_price_all.csv ./pig_price_all.csv 2>/dev/null || true
+            git add pig_price_all.csv
+            git diff --cached --quiet && echo "변경 없음 → push 생략" && git checkout main && return 0
+
+            git commit -m "data: $(date +'%Y-%m-%d %H:%M') 대량수집 업데이트 ($1)"
+            git push origin data_push:data
+            git checkout main
+            echo "=== push 완료: $1 ==="
+          }
+
+          MODE="${{ github.event.inputs.mode }}"
+          FROM="${{ github.event.inputs.from_date }}"
+
+          if [ "$MODE" = "from" ]; then
+            if [ -z "$FROM" ]; then
+              echo "ERROR: mode=from 일 때 from_date 필수"
+              exit 1
+            fi
+            echo "=== 청크 수집 모드: ${FROM} 부터 ==="
+
+            # 기존 CSV 가져오기
+            git fetch origin data || true
+            if git show-ref --verify --quiet refs/remotes/origin/data; then
+              git checkout origin/data -- pig_price_all.csv || true
+            fi
+
+            # Python으로 100일씩 청크 날짜 목록 생성
+            python3 - <<PYEOF
+          import sys
+          from datetime import date, timedelta
+
+          from_str = "${FROM}"
+          start = date(int(from_str[:4]), int(from_str[4:6]), int(from_str[6:8]))
+          end   = date.today()
+          chunk = 100
+
+          dates = []
+          cur = start
+          while cur < end:
+            nxt = min(cur + timedelta(days=chunk), end)
+            dates.append((cur.strftime("%Y%m%d"), nxt.strftime("%Y%m%d")))
+            cur = nxt
+
+          with open("chunks.txt", "w") as f:
+            for s, e in dates:
+              f.write(f"{s} {e}\n")
+          print(f"총 {len(dates)}개 청크 생성")
+          PYEOF
+
+            # 청크별 수집 + push
+            while IFS=' ' read -r chunk_start chunk_end; do
+              echo "--- 수집: ${chunk_start} ~ ${chunk_end} ---"
+
+              # 청크마다 최신 CSV 다시 가져오기
+              git checkout main
+              git fetch origin data || true
+              if git show-ref --verify --quiet refs/remotes/origin/data; then
+                git checkout origin/data -- pig_price_all.csv || true
+              fi
+
+              python pig_dashboard.py --from "${chunk_start}" --to "${chunk_end}"
+              push_csv "${chunk_start}~${chunk_end}"
+            done < chunks.txt
+
+          elif [ "$MODE" = "fill" ]; then
+            echo "=== FILL 모드: price 없는 날짜만 재수집 ==="
+            git fetch origin data || true
+            if git show-ref --verify --quiet refs/remotes/origin/data; then
+              git checkout origin/data -- pig_price_all.csv || true
+              echo "CSV 체크아웃 완료"
+              ls -la pig_price_all.csv 2>/dev/null && wc -l pig_price_all.csv || echo "파일 없음"
+            fi
+            python pig_dashboard.py --fill
+            push_csv "fill"
+
+          elif [ "$MODE" = "init" ]; then
+            echo "=== INIT 모드: 최근 90일 수집 ==="
+            git fetch origin data || true
+            if git show-ref --verify --quiet refs/remotes/origin/data; then
+              git checkout origin/data -- pig_price_all.csv || true
+            fi
+            python pig_dashboard.py --init
+            push_csv "init"
+
+          else
+            echo "ERROR: 알 수 없는 mode: $MODE"
+            exit 1
+          fi

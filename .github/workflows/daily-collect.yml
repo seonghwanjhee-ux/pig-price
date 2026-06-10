@@ -2,15 +2,11 @@ name: Daily Pig Price Collection
 
 on:
   schedule:
-    - cron: '0 0 * * *'   # 매일 UTC 00:00 = KST 09:00
-  workflow_dispatch:
+    - cron: '0 1 * * *'   # UTC 01:00 = KST 10:00 (데이터 업로드 여유 후)
+  workflow_dispatch:        # 수동 실행 버튼
     inputs:
-      mode:
-        description: '실행 모드 (init=90일 / from=날짜지정 / fill=빈날짜재수집 / 비워두면 1일치)'
-        required: false
-        default: ''
-      from_date:
-        description: '시작날짜 (mode=from 일 때만, 예: 20240101)'
+      target_date:
+        description: '수집 날짜 (비워두면 KST 어제, 예: 20260609)'
         required: false
         default: ''
 
@@ -34,98 +30,53 @@ jobs:
           pip install --upgrade pip
           pip install pandas requests beautifulsoup4 matplotlib
 
-      - name: Collect pig price data (청크 단위 수집 + 매번 push)
+      - name: Checkout existing CSV from data branch
+        run: |
+          git fetch origin data || true
+          if git show-ref --verify --quiet refs/remotes/origin/data; then
+            git checkout origin/data -- pig_price_all.csv || true
+            echo "기존 CSV 불러오기 완료"
+            ls -la pig_price_all.csv 2>/dev/null && wc -l pig_price_all.csv || echo "파일 없음"
+          else
+            echo "data 브랜치 없음 (최초 실행)"
+          fi
+
+      - name: Collect yesterday's data (KST 기준)
+        run: |
+          # 수동 실행 시 날짜 지정, 없으면 KST 기준 어제
+          if [ -n "${{ github.event.inputs.target_date }}" ]; then
+            TARGET="${{ github.event.inputs.target_date }}"
+            echo "=== 날짜 지정 모드: $TARGET ==="
+          else
+            TARGET=$(python3 -c "
+          from datetime import datetime, timezone, timedelta
+          kst = timezone(timedelta(hours=9))
+          yesterday = (datetime.now(kst) - timedelta(days=1)).date()
+          print(yesterday.strftime('%Y%m%d'))
+          ")
+            echo "=== KST 어제 자동 계산: $TARGET ==="
+          fi
+
+          python pig_dashboard.py --date "$TARGET"
+
+      - name: Push CSV to data branch
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
 
-          # push 함수 정의
-          push_csv() {
-            git fetch origin data || true
-            if git show-ref --verify --quiet refs/remotes/origin/data; then
-              git checkout origin/data -b data_push 2>/dev/null || git checkout data_push
-            else
-              git checkout --orphan data_push
-              git rm -rf . --quiet || true
-            fi
+          git fetch origin data || true
 
-            cp /home/runner/work/pig-price/pig-price/pig_price_all.csv ./pig_price_all.csv 2>/dev/null || true
-            git add pig_price_all.csv
-            git diff --cached --quiet && echo "변경 없음" && git checkout main && return 0
-
-            git commit -m "data: $(date +'%Y-%m-%d %H:%M') 경락가격 업데이트"
-            git push origin data_push:data
-            git checkout main
-          }
-
-          if [ "${{ github.event.inputs.mode }}" = "from" ]; then
-            FROM="${{ github.event.inputs.from_date }}"
-            echo "=== 청크 수집 모드: ${FROM} 부터 ==="
-
-            # Python으로 100일씩 청크 날짜 목록 생성
-            python3 - <<PYEOF
-          import sys
-          from datetime import date, timedelta
-
-          from_str = "${FROM}"
-          start = date(int(from_str[:4]), int(from_str[4:6]), int(from_str[6:8]))
-          end   = date.today()
-          chunk = 100
-
-          dates = []
-          cur = start
-          while cur < end:
-            nxt = min(cur + timedelta(days=chunk), end)
-            dates.append((cur.strftime("%Y%m%d"), nxt.strftime("%Y%m%d")))
-            cur = nxt
-
-          with open("chunks.txt", "w") as f:
-            for s, e in dates:
-              f.write(f"{s} {e}\n")
-          print(f"총 {len(dates)}개 청크 생성")
-          PYEOF
-
-            # 청크별 수집 + push
-            while IFS=' ' read -r chunk_start chunk_end; do
-              echo "--- 수집: ${chunk_start} ~ ${chunk_end} ---"
-
-              # 기존 CSV 가져오기
-              git fetch origin data || true
-              if git show-ref --verify --quiet refs/remotes/origin/data; then
-                git checkout origin/data -- pig_price_all.csv || true
-              fi
-
-              python pig_dashboard.py --from "${chunk_start}" --to "${chunk_end}"
-              push_csv
-              echo "--- push 완료: ${chunk_start} ~ ${chunk_end} ---"
-            done < chunks.txt
-
-          elif [ "${{ github.event.inputs.mode }}" = "fill" ]; then
-            git fetch origin data || true
-            if git show-ref --verify --quiet refs/remotes/origin/data; then
-              git checkout origin/data -- pig_price_all.csv || true
-              echo "pig_price_all.csv 체크아웃 완료"
-              ls -la pig_price_all.csv 2>/dev/null && wc -l pig_price_all.csv || echo "파일 없음"
-            fi
-            echo "=== FILL 모드: price 없는 날짜만 재수집 ==="
-            python pig_dashboard.py --fill
-            push_csv
-
-          elif [ "${{ github.event.inputs.mode }}" = "init" ]; then
-            git fetch origin data || true
-            if git show-ref --verify --quiet refs/remotes/origin/data; then
-              git checkout origin/data -- pig_price_all.csv || true
-            fi
-            echo "=== 초기 수집: 90일치 ==="
-            python pig_dashboard.py --init
-            push_csv
-
+          if git show-ref --verify --quiet refs/remotes/origin/data; then
+            git checkout origin/data -b data_push 2>/dev/null || git checkout data_push
           else
-            git fetch origin data || true
-            if git show-ref --verify --quiet refs/remotes/origin/data; then
-              git checkout origin/data -- pig_price_all.csv || true
-            fi
-            echo "=== 일반 모드: 오늘 1일치 ==="
-            python pig_dashboard.py
-            push_csv
+            git checkout --orphan data_push
+            git rm -rf . --quiet || true
           fi
+
+          cp /home/runner/work/pig-price/pig-price/pig_price_all.csv ./pig_price_all.csv 2>/dev/null || true
+          git add pig_price_all.csv
+          git diff --cached --quiet && echo "변경 없음 → push 생략" && exit 0
+
+          git commit -m "data: $(python3 -c \"from datetime import datetime,timezone,timedelta; kst=timezone(timedelta(hours=9)); print(datetime.now(kst).strftime('%Y-%m-%d'))\") 경락가격 업데이트"
+          git push origin data_push:data
+          echo "=== push 완료 ==="

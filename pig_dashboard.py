@@ -465,6 +465,51 @@ def run(fetch_days: int = 1, no_limit: bool = False, end_date: date = None):
     print("\n[완료]")
 
 
+def run_date(target: date, no_limit: bool = False):
+    """특정 날짜 1개 수집 (--date 플래그용, KST 명시 날짜 직접 지정)"""
+    print("=" * 55)
+    print(" 돼지 가축시장 경락가격 대시보드")
+    print(" 출처: ekapepia.com")
+    print("=" * 55)
+    print("[1/3] 날짜 지정 수집: %s" % target.strftime("%Y-%m-%d"))
+
+    new_rows = []
+    row = scrape_pig_price(target)
+
+    if row and row["count"] > 0:
+        label = "경락가 없음 (%d개)" % row["market_cnt"] if row["price"] is None \
+                else "%s원" % fmt(row["price"])
+        print("  %s  %s  두수=%s두  경매장=%d개" % (
+            row["date"], label, fmt(row["count"]), row["market_cnt"]))
+        new_rows.append(row)
+    else:
+        print("  %s  데이터 없음 (공휴일/휴장) → 최근 거래일 탐색 중..." % target.strftime("%Y%m%d"))
+        _, row = find_latest_data_day()
+        if row:
+            label = "경락가 없음 (%d개)" % row["market_cnt"] if row["price"] is None \
+                    else "%s원" % fmt(row["price"])
+            print("  %s  %s  두수=%s두  경매장=%d개 (fallback)" % (
+                row["date"], label, fmt(row["count"]), row["market_cnt"]))
+            new_rows.append(row)
+        else:
+            print("  최근 10 영업일 내 데이터 없음.")
+
+    print("[2/3] CSV 저장 중...")
+    try:
+        df = load_history()
+    except Exception:
+        df = pd.DataFrame(columns=["date", "price", "count", "market_cnt"])
+
+    df, added = update_history(df, new_rows)
+    if added > 0:
+        save_history(df)
+        print("  누적: 총 %d일  신규 %d건" % (len(df), added))
+    else:
+        print("  이미 최신 데이터입니다. (신규 0건)")
+
+    print("[3/3] 완료\n")
+
+
 def run_fill():
     """price가 None인 날짜만 재수집해서 pig_price_all.csv 업데이트"""
     import sys
@@ -539,7 +584,13 @@ if __name__ == "__main__":
         to_str = sys.argv[idx + 1]
         end_date = date(int(to_str[:4]), int(to_str[4:6]), int(to_str[6:8]))
 
-    if "--fill" in sys.argv:
+    if "--date" in sys.argv:
+        # 특정 날짜 1개 직접 수집 (daily-collect.yml 전용)
+        idx = sys.argv.index("--date")
+        date_str = sys.argv[idx + 1]
+        target = date(int(date_str[:4]), int(date_str[4:6]), int(date_str[6:8]))
+        run_date(target, no_limit=no_limit)
+    elif "--fill" in sys.argv:
         run_fill()
     elif "--from" in sys.argv:
         idx = sys.argv.index("--from")
