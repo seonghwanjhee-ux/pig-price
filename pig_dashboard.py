@@ -9,6 +9,8 @@
 import requests
 import re
 import pandas as pd
+import matplotlib
+matplotlib.use('Agg')   # 헤드리스 서버(GitHub Actions)에서 디스플레이 없이 동작
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import matplotlib.gridspec as gridspec
@@ -393,8 +395,7 @@ def draw_dashboard(df: pd.DataFrame):
 
     fig.savefig(CHART_OUT, dpi=150, bbox_inches="tight", facecolor="#f8f9fa")
     print("[OK] 대시보드 저장: %s" % CHART_OUT)
-    plt.show()
-    plt.close()
+    plt.close()   # plt.show() 제거 - 헤드리스 서버에서 hang 발생
 
 
 # ── 6. 메인 실행 ──────────────────────────────────────────────────────────────
