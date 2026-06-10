@@ -348,59 +348,113 @@ with tab1:
         # ── 연도별 비교 뷰 ────────────────────────────────────────────────────
         df_yr_src = df_all_raw  # 경매장 제한 없는 원본 데이터 사용
 
+        agg_unit = st.radio(
+            "집계 단위",
+            ["일별", "주별 평균", "월별 평균"],
+            index=0,
+            horizontal=True,
+            help="주별/월별 평균으로 이상치를 완화할 수 있습니다",
+        )
+
         year_colors = {2024: "#95a5a6", 2025: "#3498db", 2026: "#e74c3c"}
         year_width  = {2024: 1.5,       2025: 1.5,       2026: 2.5}
+        marker_size = {2024: 3,         2025: 3,         2026: 5}
+        if agg_unit != "일별":
+            marker_size = {2024: 6, 2025: 6, 2026: 8}
+
+        def agg_year(df_src: pd.DataFrame, yr: int, unit: str) -> pd.DataFrame:
+            """연도별 데이터를 집계 단위에 맞게 변환 → x_date, price 컬럼 반환"""
+            df_yr = df_src[(df_src["date"].dt.year == yr) & df_src["price"].notna()].copy()
+            if df_yr.empty:
+                return pd.DataFrame()
+
+            if unit == "일별":
+                df_yr["x_date"] = pd.to_datetime(
+                    "2026-" + df_yr["date"].dt.strftime("%m-%d"), errors="coerce"
+                )
+                return df_yr.dropna(subset=["x_date"]).sort_values("x_date")[["x_date", "price"]]
+
+            elif unit == "주별 평균":
+                df_yr["week"] = df_yr["date"].dt.isocalendar().week.astype(int)
+                weekly = df_yr.groupby("week")["price"].mean().round(0).reset_index()
+                def week_to_x(w):
+                    try:
+                        return pd.Timestamp(date.fromisocalendar(2026, int(w), 1))
+                    except Exception:
+                        return pd.NaT
+                weekly["x_date"] = weekly["week"].apply(week_to_x)
+                return weekly.dropna(subset=["x_date"]).sort_values("x_date")[["x_date", "price"]]
+
+            else:  # 월별 평균
+                df_yr["month"] = df_yr["date"].dt.month
+                monthly = df_yr.groupby("month")["price"].mean().round(0).reset_index()
+                monthly["x_date"] = monthly["month"].apply(
+                    lambda m: pd.Timestamp(f"2026-{int(m):02d}-15")
+                )
+                return monthly.dropna(subset=["x_date"]).sort_values("x_date")[["x_date", "price"]]
+
+        def compute_band(unit: str) -> pd.DataFrame:
+            """2024~2025 가격 범위 밴드 계산"""
+            dfs = []
+            for yr in [2024, 2025]:
+                d = agg_year(df_yr_src, yr, unit)
+                if not d.empty:
+                    dfs.append(d)
+            if not dfs:
+                return pd.DataFrame()
+            df_b = pd.concat(dfs)
+            band = df_b.groupby("x_date")["price"].agg(["min", "max"]).reset_index()
+            return band.rename(columns={"x_date": "x"}).sort_values("x")
 
         fig2 = go.Figure()
 
-        # 2024/2025 밴드 (고가/저가 범위)
-        df_band = df_yr_src[df_yr_src["date"].dt.year.isin([2024, 2025]) & df_yr_src["price"].notna()].copy()
-        df_band["mmdd"] = df_band["date"].dt.strftime("%m-%d")
-        band = df_band.groupby("mmdd")["price"].agg(["min", "max"]).reset_index()
-        band["x"] = pd.to_datetime("2026-" + band["mmdd"], errors="coerce")
-        band = band.dropna(subset=["x"]).sort_values("x")
+        # 밴드 (2024~2025 범위)
+        band = compute_band(agg_unit)
+        if not band.empty:
+            fig2.add_trace(go.Scatter(
+                x=pd.concat([band["x"], band["x"][::-1]]),
+                y=pd.concat([band["max"], band["min"][::-1]]),
+                fill="toself", fillcolor="rgba(149,165,166,0.15)",
+                line=dict(color="rgba(0,0,0,0)"),
+                name="2024~2025 범위", hoverinfo="skip",
+            ))
 
-        fig2.add_trace(go.Scatter(
-            x=pd.concat([band["x"], band["x"][::-1]]),
-            y=pd.concat([band["max"], band["min"][::-1]]),
-            fill="toself", fillcolor="rgba(149,165,166,0.15)",
-            line=dict(color="rgba(0,0,0,0)"),
-            name="2024~2025 범위", hoverinfo="skip",
-        ))
+        # hover 포맷
+        hover_fmt   = {"일별": "%m월 %d일", "주별 평균": "%m월 %d일 주", "월별 평균": "%m월"}
+        hover_label = {"일별": "경락가", "주별 평균": "주평균", "월별 평균": "월평균"}
+        x_fmt = hover_fmt[agg_unit]
+        v_lbl = hover_label[agg_unit]
 
         # 연도별 선
         for yr in [2024, 2025, 2026]:
-            df_yr = df_yr_src[(df_yr_src["date"].dt.year == yr) & df_yr_src["price"].notna()].copy()
-            if df_yr.empty:
+            df_yr_agg = agg_year(df_yr_src, yr, agg_unit)
+            if df_yr_agg.empty:
                 continue
-            # x축을 2026년 기준 날짜로 통일
-            df_yr["x_date"] = pd.to_datetime(
-                "2026-" + df_yr["date"].dt.strftime("%m-%d"), errors="coerce"
-            )
-            df_yr = df_yr.dropna(subset=["x_date"]).sort_values("x_date")
 
-            if show_ma:
-                df_yr["ma3"] = df_yr["price"].rolling(3, min_periods=1).mean()
+            # 일별 뷰에서만 MA 표시
+            if show_ma and agg_unit == "일별":
+                df_yr_agg["ma3"] = df_yr_agg["price"].rolling(3, min_periods=1).mean()
                 fig2.add_trace(go.Scatter(
-                    x=df_yr["x_date"], y=df_yr["ma3"],
+                    x=df_yr_agg["x_date"], y=df_yr_agg["ma3"],
                     name=f"{yr}년 3일평균",
                     mode="lines",
                     line=dict(color=year_colors[yr], width=year_width[yr], dash="dot"),
                     opacity=0.7,
-                    hovertemplate=f"{yr}년 %{{x|%m-%d}}<br>3일평균: <b>%{{y:,.0f}}원/kg</b><extra></extra>",
+                    hovertemplate=f"{yr}년 %{{x|{x_fmt}}}<br>3일평균: <b>%{{y:,.0f}}원/kg</b><extra></extra>",
                 ))
 
             fig2.add_trace(go.Scatter(
-                x=df_yr["x_date"], y=df_yr["price"],
+                x=df_yr_agg["x_date"], y=df_yr_agg["price"],
                 name=f"{yr}년",
                 mode="lines+markers",
                 line=dict(color=year_colors[yr], width=year_width[yr]),
-                marker=dict(size=3 if yr != 2026 else 5),
-                hovertemplate=f"{yr}년 %{{x|%m-%d}}<br>경락가: <b>%{{y:,.0f}}원/kg</b><extra></extra>",
+                marker=dict(size=marker_size[yr]),
+                hovertemplate=f"{yr}년 %{{x|{x_fmt}}}<br>{v_lbl}: <b>%{{y:,.0f}}원/kg</b><extra></extra>",
             ))
 
+        title_suffix = {"일별": "일별", "주별 평균": "주별 평균", "월별 평균": "월별 평균"}[agg_unit]
         fig2.update_layout(
-            title="연도별 경락가격 비교  (원/kg)",
+            title=f"연도별 경락가격 비교  ({title_suffix})  단위: 원/kg",
             height=500, plot_bgcolor="white", paper_bgcolor="#f8f9fa",
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
             margin=dict(l=10, r=10, t=80, b=10),
