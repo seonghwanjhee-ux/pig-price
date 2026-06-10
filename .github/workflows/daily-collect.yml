@@ -75,9 +75,13 @@ jobs:
 
           cp /home/runner/work/pig-price/pig-price/pig_price_all.csv ./pig_price_all.csv 2>/dev/null || true
           git add pig_price_all.csv
-          git diff --cached --quiet && echo "변경 없음 → push 생략" && exit 0
 
-          TODAY_KST=$(TZ=Asia/Seoul date +%Y-%m-%d)
-          git commit -m "data: ${TODAY_KST} 경락가격 업데이트"
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+
+          COMMIT_DATE=$(date -u +%Y-%m-%d)
+          git commit -m "data: ${COMMIT_DATE} pig price update"
           git push origin data_push:data
-          echo "=== push 완료 ==="
+          echo "Push complete"
