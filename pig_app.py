@@ -265,12 +265,44 @@ with tab1:
             {sub_html}
         </div>"""
 
-    c1, c2, c3, c4 = st.columns(4)
+    # 주간 평균 (최근 5거래일 vs 이전 5거래일)
+    last5 = valid_df["price"].tail(5).tolist()
+    w_avg = round(sum(last5) / len(last5), 1) if last5 else None
+    prev5 = valid_df["price"].iloc[-10:-5].tolist()
+    if w_avg and len(prev5) >= 1:
+        prev_w   = round(sum(prev5) / len(prev5), 1)
+        w_dv     = w_avg - prev_w
+        w_ds     = "%+.0f원 (%+.1f%%)" % (w_dv, w_dv / prev_w * 100)
+        w_dc     = "#e74c3c" if w_dv >= 0 else "#2980b9"
+    else:
+        w_ds, w_dc = None, "#7f8c8d"
+
+    # 전년 동일 주차 대비 (이번 주차 평균 vs 작년 같은 ISO 주차 평균)
+    yoy_val, yoy_ds, yoy_dc, yoy_label = None, None, "#7f8c8d", "전년 동주차 대비"
+    if len(valid_df):
+        cur_iso  = valid_df.iloc[-1]["date"].isocalendar()
+        cur_year, cur_week = int(cur_iso[0]), int(cur_iso[1])
+        src = df_all[df_all["price"].notna()].copy()
+        iso = src["date"].dt.isocalendar()
+        src["iso_year"], src["iso_week"] = iso["year"].astype(int), iso["week"].astype(int)
+        this_wk = src[(src["iso_year"] == cur_year) & (src["iso_week"] == cur_week)]["price"]
+        last_wk = src[(src["iso_year"] == cur_year - 1) & (src["iso_week"] == cur_week)]["price"]
+        if len(this_wk) and len(last_wk):
+            t_avg = round(this_wk.mean(), 1)
+            p_avg = round(last_wk.mean(), 1)
+            yoy_val   = t_avg
+            yoy_dv    = t_avg - p_avg
+            yoy_ds    = "작년 %s원 → %+.0f원 (%+.1f%%)" % (fmt(p_avg), yoy_dv, yoy_dv / p_avg * 100)
+            yoy_dc    = "#e74c3c" if yoy_dv >= 0 else "#2980b9"
+            yoy_label = f"전년 동주차 대비 ({cur_week}주차 평균)"
+
+    c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
         st.markdown(kpi_html(
             f"전일 경락가격<br>{l_date_str}",
             ("%s원/kg" % fmt(l_price)) if l_price else "경락가 없음",
             "#2c3e50" if l_price else "#e74c3c",
+            sub=ds if ds != "-" else None, sub_color=dc,
         ), unsafe_allow_html=True)
     with c2:
         st.markdown(kpi_html(
@@ -281,10 +313,19 @@ with tab1:
         ), unsafe_allow_html=True)
     with c3:
         st.markdown(kpi_html(
-            "직전 거래일 대비 등락",
-            ds, dc,
+            "주간 평균 (최근 5거래일)",
+            ("%s원/kg" % fmt(w_avg)) if w_avg else "-",
+            "#16a085",
+            sub=w_ds, sub_color=w_dc,
         ), unsafe_allow_html=True)
     with c4:
+        st.markdown(kpi_html(
+            yoy_label,
+            ("%s원/kg" % fmt(yoy_val)) if yoy_val else "-",
+            "#d35400",
+            sub=yoy_ds, sub_color=yoy_dc,
+        ), unsafe_allow_html=True)
+    with c5:
         st.markdown(kpi_html(
             f"경매 두수 / 경매장<br>{l_date_str}",
             "%s두 / %d개" % (fmt(l_cnt), l_mkt),
