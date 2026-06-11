@@ -334,10 +334,12 @@ with tab1:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── 2주간 경락가격 표 ──────────────────────────────────────────────────────
-    def make_2week_table(df_src: pd.DataFrame) -> pd.DataFrame:
+    # ── 2주간 경락가격 표 (hover 시 생돈매입가 표시) ──────────────────────────
+    def make_2week_html(df_src: pd.DataFrame) -> str:
         col_labels = ["월", "화", "수", "목", "금"]
-        biz = df_src[df_src["date"].dt.weekday < 5].copy()
+        biz = df_src[df_src["date"].dt.weekday < 5].copy().sort_values("date").reset_index(drop=True)
+        biz["avg3"] = calc_3day_avg(biz)   # 직전 3거래일 산술평균 = 생돈매입가
+
         weeks = {}
         for _, r in biz.iterrows():
             iso = r["date"].isocalendar()
@@ -345,28 +347,46 @@ with tab1:
             if key not in weeks:
                 weeks[key] = {}
             price_str = f"{int(r['price']):,}원" if pd.notna(r["price"]) else "-"
-            weeks[key][r["date"].weekday()] = (r["date"].strftime("%m/%d"), price_str)
+            tooltip   = f"생돈매입가: {int(r['avg3']):,}원/kg" if pd.notna(r["avg3"]) else "생돈매입가: -"
+            weeks[key][r["date"].weekday()] = (r["date"].strftime("%m/%d"), price_str, tooltip)
         last_2_keys = sorted(weeks.keys())[-2:]
-        table_rows = []
+
+        html = """
+        <style>
+        .wk-table { width:100%; border-collapse:collapse; background:white; }
+        .wk-table th, .wk-table td {
+            border:1px solid #dee2e6; padding:10px 8px; text-align:center; font-size:14px;
+        }
+        .wk-table th { background:#f1f3f5; color:#495057; font-weight:600; }
+        .wk-table td.has-tip { cursor:help; }
+        .wk-table td.has-tip:hover { background:#eaf4fd; }
+        .wk-table td .cell-date { font-size:11px; color:#95a5a6; display:block; margin-bottom:2px; }
+        </style>
+        <table class="wk-table">
+        <tr><th>기간</th>"""
+        for label in col_labels:
+            html += f"<th>{label}</th>"
+        html += "</tr>"
+
         for key in last_2_keys:
             week_data = weeks[key]
             dates_in_week = [v[0] for v in week_data.values()]
             date_range = f"{min(dates_in_week)} ~ {max(dates_in_week)}"
-            row = {"기간": date_range}
-            for i, label in enumerate(col_labels):
-                row[label] = week_data[i][1] if i in week_data else "-"
-            table_rows.append(row)
-        return pd.DataFrame(table_rows)
+            html += f"<tr><td>{date_range}</td>"
+            for i in range(5):
+                if i in week_data:
+                    d_str, p_str, tip = week_data[i]
+                    html += (f'<td class="has-tip" title="{tip}">'
+                             f'<span class="cell-date">{d_str}</span><b>{p_str}</b></td>')
+                else:
+                    html += "<td>-</td>"
+            html += "</tr>"
+        html += "</table>"
+        return html
 
     st.subheader("최근 2주 경락가격")
-    tbl = make_2week_table(df_all)
-    st.dataframe(
-        tbl, use_container_width=True, hide_index=True,
-        column_config={
-            "기간": st.column_config.TextColumn("기간", width="medium"),
-            **{col: st.column_config.TextColumn(col, width="small") for col in ["월","화","수","목","금"]},
-        },
-    )
+    st.caption("💡 가격에 마우스를 올리면 생돈매입가(직전 3거래일 평균)가 표시됩니다")
+    st.markdown(make_2week_html(df_all), unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
