@@ -15,12 +15,16 @@ SCRAPE_URL = "https://www.ekapepia.com/v3/supplyTrend/statistics/auctionPrice/pi
 CSV_MONTH  = Path(__file__).parent / "pig_supply_month.csv"
 CSV_WEEK   = Path(__file__).parent / "pig_supply_week.csv"
 
+# searchCondition1: 시장 구분 — '057016' = 전국(제주제외)
+# (제주산 돼지는 고가라 경락가격 산정에서 제외. '' 으로 두면 제주 포함되어 가격이 왜곡됨)
+REGION_EXCL_JEJU = "057016"
+
 
 def fetch_supply(search_type: str, year: int) -> pd.DataFrame:
     params = {
         "searchType"      : search_type,
         "searchYear"      : str(year),
-        "searchCondition1": "",
+        "searchCondition1": REGION_EXCL_JEJU,   # 전국(제주제외)
         "searchCondition2": "",
         "searchCondition3": "",
         "searchCondition4": "",
