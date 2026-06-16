@@ -709,6 +709,82 @@ with tab2:
             if fig_w:
                 st.plotly_chart(fig_w, use_container_width=True)
 
+        st.divider()
+
+        # ── 경매비율 (가축시장 경매두수 ÷ 전국 출하물량 × 100) ────────────────
+        st.subheader("⚖️ 경매비율 (가축시장 경매두수 ÷ 전국 출하물량)")
+        st.caption("전국 출하 돼지 중 가축시장 경매를 거친 비율 (%) · 모두 전국 제주제외 기준")
+
+        ratio_colors = {2024: "#95a5a6", 2025: "#3498db", 2026: "#e74c3c"}
+        ratio_width  = {2024: 1.5,       2025: 1.5,       2026: 2.5}
+        ratio_msize  = {2024: 5,         2025: 5,         2026: 7}
+
+        def compute_ratio(df_supply: pd.DataFrame, is_week: bool) -> pd.DataFrame:
+            """연도·기간별 경매비율 산출 → (year, period, ratio, auc, vol) 반환"""
+            if df_supply.empty or df_all_raw.empty:
+                return pd.DataFrame()
+            # 일별 경매두수를 (연도, 기간)으로 합산
+            d = df_all_raw[["date", "count"]].dropna(subset=["count"]).copy()
+            d["year"] = d["date"].dt.year
+            if is_week:
+                d["period"] = d["date"].dt.isocalendar().week.astype(int)
+            else:
+                d["period"] = d["date"].dt.month
+            auc = d.groupby(["year", "period"])["count"].sum().reset_index(name="auc")
+            # 출하물량 (curr_volume) 매핑
+            vol = df_supply[["year", "period", "curr_volume"]].copy()
+            vol = vol[vol["curr_volume"].notna() & (vol["curr_volume"] > 0)]
+            merged = vol.merge(auc, on=["year", "period"], how="inner")
+            merged["ratio"] = (merged["auc"] / merged["curr_volume"] * 100).round(2)
+            return merged
+
+        def ratio_chart(df_supply: pd.DataFrame, title: str, is_week: bool) -> go.Figure:
+            r = compute_ratio(df_supply, is_week)
+            if r.empty:
+                return None
+            unit = "주차" if is_week else "월"
+            fig = go.Figure()
+            for yr in [2024, 2025, 2026]:
+                ry = r[r["year"] == yr].sort_values("period")
+                if ry.empty:
+                    continue
+                custom = list(zip(ry["auc"], ry["curr_volume"]))
+                fig.add_trace(go.Scatter(
+                    x=ry["period"], y=ry["ratio"],
+                    name=f"{yr}년", mode="lines+markers",
+                    line=dict(color=ratio_colors[yr], width=ratio_width[yr]),
+                    marker=dict(size=ratio_msize[yr]),
+                    customdata=custom,
+                    hovertemplate=(f"{yr}년 %{{x}}{unit}<br>"
+                                   "경매비율: <b>%{y:.2f}%</b><br>"
+                                   "경매 %{customdata[0]:,.0f}두 / 출하 %{customdata[1]:,.0f}두"
+                                   "<extra></extra>"),
+                ))
+            fig.update_layout(
+                title=title, height=420,
+                plot_bgcolor="white", paper_bgcolor="#f8f9fa",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+                margin=dict(l=10, r=10, t=70, b=10), hovermode="x unified",
+                xaxis=dict(showgrid=False, title=unit,
+                           tickmode="array",
+                           tickvals=sorted(r["period"].unique().tolist()),
+                           ticktext=[str(int(p)) for p in sorted(r["period"].unique().tolist())]),
+                yaxis=dict(title="경매비율 (%)", ticksuffix="%",
+                           showgrid=True, gridcolor="#f0f0f0"),
+            )
+            return fig
+
+        fig_rm = ratio_chart(df_month, "월별 경매비율 (3개년 비교)", is_week=False)
+        if fig_rm:
+            st.plotly_chart(fig_rm, use_container_width=True)
+        else:
+            st.info("경매비율 계산용 출하물량 데이터가 부족합니다. weekly-supply 워크플로우를 실행해 2024~2026 데이터를 채워주세요.")
+
+        fig_rw = ratio_chart(df_week, "주별 경매비율 (3개년 비교)", is_week=True)
+        if fig_rw:
+            st.caption("⚠️ 주별은 ISO주차 기준 합산이라 연초 부분주에서 ±1주 경계 오차가 있을 수 있습니다.")
+            st.plotly_chart(fig_rw, use_container_width=True)
+
         # 원본 데이터
         with st.expander("📋 출하물량 원본 데이터 보기"):
             col_a, col_b = st.columns(2)
