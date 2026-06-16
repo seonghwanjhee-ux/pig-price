@@ -19,6 +19,9 @@ CSV_WEEK   = Path(__file__).parent / "pig_supply_week.csv"
 # (제주산 돼지는 고가라 경락가격 산정에서 제외. '' 으로 두면 제주 포함되어 가격이 왜곡됨)
 REGION_EXCL_JEJU = "057016"
 
+# 출하물량 수집 시작 연도 (경매비율 3개년 비교용)
+START_YEAR = 2024
+
 
 def fetch_supply(search_type: str, year: int) -> pd.DataFrame:
     params = {
@@ -76,23 +79,37 @@ def save_csv(df: pd.DataFrame, path: Path):
 
 
 def update_supply(search_type: str, csv_path: Path):
-    year = date.today().year
-    print(f"  [{search_type}] {year}년 수집 중...")
-    df_new = fetch_supply(search_type, year)
-    if df_new.empty:
-        print(f"  [{search_type}] 데이터 없음")
+    """START_YEAR ~ 현재연도까지 전 연도 수집.
+    각 연도 행의 curr_volume = 그 해 실제 출하물량 (경매비율 분모로 사용)."""
+    import time
+    years = list(range(START_YEAR, date.today().year + 1))
+    frames = []
+    for y in years:
+        print(f"  [{search_type}] {y}년 수집 중...")
+        df_y = fetch_supply(search_type, y)
+        if df_y.empty:
+            print(f"  [{search_type}] {y}년 데이터 없음")
+        else:
+            frames.append(df_y)
+        time.sleep(0.5)
+
+    if not frames:
+        print(f"  [{search_type}] 수집된 데이터 없음")
         return
 
-    # 기존 데이터 로드 후 현재 연도 갱신
+    df_new = pd.concat(frames, ignore_index=True)
+
+    # 수집한 연도는 기존 데이터에서 제거 후 교체 (year별 dedupe)
     df_old = load_csv(csv_path)
     if not df_old.empty:
-        df_old = df_old[df_old["year"] != year]
-        df_combined = pd.concat([df_old, df_new], ignore_index=True).sort_values(["year", "period"])
+        df_old = df_old[~df_old["year"].isin(years)]
+        df_combined = pd.concat([df_old, df_new], ignore_index=True)
     else:
         df_combined = df_new
 
+    df_combined = df_combined.sort_values(["year", "period"]).reset_index(drop=True)
     save_csv(df_combined, csv_path)
-    print(f"  [{search_type}] 저장 완료 → {len(df_combined)}행")
+    print(f"  [{search_type}] 저장 완료 → {len(df_combined)}행 (연도: {years})")
 
 
 if __name__ == "__main__":
