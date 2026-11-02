@@ -36,8 +36,18 @@ def fetch_supply(search_type: str, year: int) -> pd.DataFrame:
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Referer"   : "https://www.ekapepia.com/",
     }
-    r = requests.get(SCRAPE_URL, params=params, headers=headers, timeout=15)
-    r.raise_for_status()
+    # ekapepia가 간헐적으로 느리거나 오류를 내므로 재시도 (2026-11-02 주간 수집 실패 원인)
+    import time
+    for attempt in range(1, 4):
+        try:
+            r = requests.get(SCRAPE_URL, params=params, headers=headers, timeout=30)
+            r.raise_for_status()
+            break
+        except requests.RequestException as e:
+            if attempt == 3:
+                raise
+            print(f"  [{search_type}] {year}년 요청 실패({e.__class__.__name__}) → {attempt * 10}초 후 재시도")
+            time.sleep(attempt * 10)
 
     soup  = BeautifulSoup(r.text, "html.parser")
     table = soup.find("table")
@@ -83,14 +93,15 @@ def update_supply(search_type: str, csv_path: Path):
     각 연도 행의 curr_volume = 그 해 실제 출하물량 (경매비율 분모로 사용)."""
     import time
     years = list(range(START_YEAR, date.today().year + 1))
-    frames = []
+    frames, fetched = [], []
     for y in years:
         print(f"  [{search_type}] {y}년 수집 중...")
         df_y = fetch_supply(search_type, y)
         if df_y.empty:
-            print(f"  [{search_type}] {y}년 데이터 없음")
+            print(f"  [{search_type}] {y}년 데이터 없음 → 기존 데이터 유지")
         else:
             frames.append(df_y)
+            fetched.append(y)
         time.sleep(0.5)
 
     if not frames:
@@ -99,17 +110,17 @@ def update_supply(search_type: str, csv_path: Path):
 
     df_new = pd.concat(frames, ignore_index=True)
 
-    # 수집한 연도는 기존 데이터에서 제거 후 교체 (year별 dedupe)
+    # 실제로 받아온 연도만 기존 데이터에서 제거 후 교체 (빈 응답 연도는 기존 값 보존)
     df_old = load_csv(csv_path)
     if not df_old.empty:
-        df_old = df_old[~df_old["year"].isin(years)]
+        df_old = df_old[~df_old["year"].isin(fetched)]
         df_combined = pd.concat([df_old, df_new], ignore_index=True)
     else:
         df_combined = df_new
 
     df_combined = df_combined.sort_values(["year", "period"]).reset_index(drop=True)
     save_csv(df_combined, csv_path)
-    print(f"  [{search_type}] 저장 완료 → {len(df_combined)}행 (연도: {years})")
+    print(f"  [{search_type}] 저장 완료 → {len(df_combined)}행 (갱신 연도: {fetched})")
 
 
 if __name__ == "__main__":
